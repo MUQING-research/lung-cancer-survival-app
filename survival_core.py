@@ -97,8 +97,8 @@ except ImportError:
 __version__ = "1.0.0"
 SEED = 42
 CELL_COLORS = [
-    "#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F",
-    "#8491B4", "#91D1C2", "#DC0000", "#7E6148", "#B09C85",
+    "#E11D48", "#06B6D4", "#10B981", "#4F46E5", "#EC4899",
+    "#94A3B8", "#A78BFA", "#DC2626", "#64748B", "#9333EA",
 ]
 
 
@@ -184,20 +184,20 @@ _LOG_HR = dict(
 )
 
 BRAND = dict(
-    red=CELL_COLORS[0],
-    blue=CELL_COLORS[1],
-    green=CELL_COLORS[2],
-    navy=CELL_COLORS[3],
-    orange=CELL_COLORS[4],
-    purple=CELL_COLORS[5],
-    mint=CELL_COLORS[6],
-    crimson=CELL_COLORS[7],
-    brown=CELL_COLORS[8],
-    tan=CELL_COLORS[9],
+    red="#E11D48",
+    blue="#06B6D4",
+    green="#10B981",
+    navy="#4F46E5",
+    orange="#EC4899",
+    purple="#A78BFA",
+    mint="#A78BFA",
+    crimson="#DC2626",
+    brown="#64748B",
+    tan="#F59E0B",
     light="white",
-    grid=CELL_COLORS[6],
-    edge=CELL_COLORS[5],
-    ink=CELL_COLORS[3],
+    grid="#EDE9FE",
+    edge="#C4B5FD",
+    ink="#334155",
 )
 
 MODEL_COLORS = {

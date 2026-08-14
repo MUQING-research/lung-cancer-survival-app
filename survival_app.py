@@ -1,4 +1,4 @@
-﻿"""
+"""
 survival_app.py — TCGA-LUAD Lung Adenocarcinoma Overall Survival
 ================================================================
 Cox Proportional Hazards  ×  Log-Logistic Accelerated Failure Time
@@ -14,6 +14,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import warnings
 from pathlib import Path
 
@@ -65,18 +66,25 @@ if os.name == "nt":
     tempfile.TemporaryDirectory = _SafeTemporaryDirectory
 
 sc.apply_cell_matplotlib_style(**{
-    "font.size": 9.0,
-    "axes.titlesize": 10.0,
-    "axes.labelsize": 9.0,
-    "xtick.labelsize": 8.0,
-    "ytick.labelsize": 8.0,
-    "legend.fontsize": 8.0,
-    "lines.markersize": 3.6,
+    "font.size": 8.0,
+    "axes.titlesize": 9.0,
+    "axes.labelsize": 8.5,
+    "xtick.labelsize": 7.5,
+    "ytick.labelsize": 7.5,
+    "legend.fontsize": 7.5,
+    "lines.markersize": 3.2,
 })
 
 _COX_CLR = BRAND["navy"]
 _AFT_CLR = BRAND["orange"]
 _MUTED   = BRAND["brown"]
+_INK_SV  = "#111111"     # reference rules / misc ink
+_AXIS_SV = "#334155"     # axis spines
+_TICK_SV = "#475569"     # tick marks / tick labels
+_LABEL_SV = "#1E293B"    # axis labels
+_GRID_SV = "#EDE9FE"     # subtle lavender gridlines
+_PANEL_SV = "#7C3AED"    # violet panel titles
+_REF_GRAY = "#999999"    # light reference rules inside figures
 
 # ── 1. GDC download & preprocessing ──────────────────────────────────────────
 
@@ -487,13 +495,19 @@ def _sb_headers_sv():
     }
 
 
+# One shared session per process: connection pooling + shorter TLS handshakes
+# for the (otherwise) many small analytics requests.
+_HTTP_SESSION_SV = requests.Session()
+_HTTP_SESSION_SV.headers.update({"User-Agent": _APP_NAME_SV})
+
+
 def _log_visit_sv(country, city, lat, lon):
     if not (_SUPABASE_URL and _SUPABASE_KEY):
         return
     if lat is None or lon is None:
         return
     try:
-        requests.post(
+        _HTTP_SESSION_SV.post(
             f"{_SUPABASE_URL}/rest/v1/visits",
             headers=_sb_headers_sv(),
             json={"app_name": _APP_NAME_SV, "country": country,
@@ -509,7 +523,7 @@ def _delete_null_visits_sv():
         return
     try:
         hdrs = {k: v for k, v in _sb_headers_sv().items() if k != "Prefer"}
-        requests.delete(
+        _HTTP_SESSION_SV.delete(
             f"{_SUPABASE_URL}/rest/v1/visits",
             headers=hdrs,
             params={"app_name": f"eq.{_APP_NAME_SV}", "lat": "is.null"},
@@ -525,7 +539,7 @@ def _fetch_visits_sv():
         return []
     try:
         hdrs = {k: v for k, v in _sb_headers_sv().items() if k != "Prefer"}
-        r = requests.get(
+        r = _HTTP_SESSION_SV.get(
             f"{_SUPABASE_URL}/rest/v1/visits",
             headers=hdrs,
             params={"app_name": f"eq.{_APP_NAME_SV}",
@@ -545,6 +559,7 @@ def _fetch_visits_sv():
 
 _WORLD_GEO_PATH_SV = Path(__file__).parent / "world.geojson"
 _WORLD_GEO_SV = None
+_WORLD_PATCHES_SV = None
 
 
 def _load_world_geo_sv():
@@ -555,15 +570,41 @@ def _load_world_geo_sv():
     return _WORLD_GEO_SV
 
 
+def _world_patches_sv():
+    """World-outline matplotlib Polygons, parsed once per process."""
+    global _WORLD_PATCHES_SV
+    if _WORLD_PATCHES_SV is not None:
+        return _WORLD_PATCHES_SV
+    from matplotlib.patches import Polygon
+
+    geo = _load_world_geo_sv()
+    patches = []
+    if geo:
+        for feat in geo.get("features", []):
+            geom = feat.get("geometry") or {}
+            gtype = geom.get("type", "")
+            coords = geom.get("coordinates", [])
+            try:
+                if gtype == "Polygon":
+                    pts = np.array(coords[0])[:, :2]
+                    patches.append(Polygon(pts, closed=True))
+                elif gtype == "MultiPolygon":
+                    for poly in coords:
+                        pts = np.array(poly[0])[:, :2]
+                        patches.append(Polygon(pts, closed=True))
+            except Exception:
+                pass
+    _WORLD_PATCHES_SV = patches
+    return patches
+
+
 threading.Thread(target=_delete_null_visits_sv, daemon=True).start()
 
 
-def _make_visit_map_sv(user_lat=None, user_lon=None):
+def _make_visit_map_sv(visits, user_lat=None, user_lon=None):
     from collections import Counter
-    from matplotlib.patches import Polygon
     from matplotlib.collections import PatchCollection
 
-    visits = _fetch_visits_sv()
     valid  = [v for v in visits if v.get("lat") is not None and v.get("lon") is not None]
     lats = [v["lat"] for v in valid]
     lons = [v["lon"] for v in valid]
@@ -582,35 +623,19 @@ def _make_visit_map_sv(user_lat=None, user_lon=None):
             seen_cities.add(city)
             city_labels.append((v["lat"], v["lon"], city))
 
-    fig, ax = plt.subplots(figsize=(7.0, 3.5), facecolor="white")
+    fig, ax = plt.subplots(figsize=(6.6, 3.15), facecolor="white")
     ax.set_facecolor("white")
     ax.set_xlim(-180, 180)
     ax.set_ylim(-70, 85)
     _cell_ax(fig, ax)
 
-    geo = _load_world_geo_sv()
-    if geo:
-        patches = []
-        for feat in geo.get("features", []):
-            geom = feat.get("geometry") or {}
-            gtype = geom.get("type", "")
-            coords = geom.get("coordinates", [])
-            try:
-                if gtype == "Polygon":
-                    pts = np.array(coords[0])[:, :2]
-                    patches.append(Polygon(pts, closed=True))
-                elif gtype == "MultiPolygon":
-                    for poly in coords:
-                        pts = np.array(poly[0])[:, :2]
-                        patches.append(Polygon(pts, closed=True))
-            except Exception:
-                pass
-        if patches:
-            pc = PatchCollection(
-                patches, facecolor=BRAND["mint"], edgecolor=BRAND["edge"],
-                linewidth=0.4, alpha=0.35, zorder=1,
-            )
-            ax.add_collection(pc)
+    patches = _world_patches_sv()
+    if patches:
+        pc = PatchCollection(
+            patches, facecolor=BRAND["mint"], edgecolor=BRAND["edge"],
+            linewidth=0.4, alpha=0.35, zorder=1,
+        )
+        ax.add_collection(pc)
 
     if lons:
         ax.scatter(lons, lats, s=28, color=BRAND["blue"], alpha=0.8,
@@ -637,7 +662,7 @@ def _make_visit_map_sv(user_lat=None, user_lon=None):
     ax.set_yticks([])
 
     if lons or user_lat is not None:
-        ax.legend(fontsize=8.0, loc="lower left", frameon=False)
+        ax.legend(fontsize=7.5, loc="lower left", frameon=False)
 
     fig.tight_layout(pad=0.6)
     return fig
@@ -649,21 +674,25 @@ _KEY_T   = np.array([6., 12., 18., 24., 36., 48., 60.])
 _REF_T   = np.array([12., 24., 36., 60.])
 
 
-def _cell_ax(fig, ax):
+def _cell_ax(fig, ax, grid=False):
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
     for sp in ("top", "right", "bottom", "left"):
         ax.spines[sp].set_visible(True)
-        ax.spines[sp].set_color(BRAND["edge"])
+        ax.spines[sp].set_color(_AXIS_SV)
         ax.spines[sp].set_linewidth(0.8)
-    ax.tick_params(colors=BRAND["ink"], direction="out", length=3, width=0.8, labelsize=8.0)
-    ax.xaxis.label.set_color(BRAND["ink"])
-    ax.yaxis.label.set_color(BRAND["ink"])
-    ax.xaxis.label.set_size(9.0)
-    ax.yaxis.label.set_size(9.0)
-    ax.title.set_color(BRAND["ink"])
-    ax.title.set_size(10.0)
-    ax.grid(False)
+    ax.tick_params(colors=_TICK_SV, direction="out", length=2.6, width=0.7, labelsize=7.5)
+    ax.xaxis.label.set_color(_LABEL_SV)
+    ax.yaxis.label.set_color(_LABEL_SV)
+    ax.xaxis.label.set_size(8.5)
+    ax.yaxis.label.set_size(8.5)
+    ax.title.set_color(_PANEL_SV)
+    ax.title.set_size(9.0)
+    if grid:
+        ax.grid(True, axis="y", color=_GRID_SV, linewidth=0.7, zorder=0)
+        ax.set_axisbelow(True)
+    else:
+        ax.grid(False)
 
 
 def _predict_curve(model, feat_df: pd.DataFrame) -> np.ndarray:
@@ -706,389 +735,580 @@ def _survival_function_frame(model):
     return vals.index.to_numpy(dtype=float), vals.to_numpy(dtype=float)
 
 
+# ── 4a. Static figures (pre-rendered once per process) ────────────────────────
+
+def _figure_tag(fig, alt: str):
+    """Render a matplotlib figure to an embedded PNG <img> tag."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+    return ui.tags.img(
+        src=f"data:image/png;base64,{encoded}",
+        alt=alt,
+    )
+
+
+def _make_dist_fig():
+    """Marginal survival distribution: KM + parametric candidates."""
+    fig, ax = plt.subplots(figsize=(6.6, 3.15))
+    _cell_ax(fig, ax, grid=True)
+
+    km_t, km_s = _survival_function_frame(KM_TRAIN)
+    t_max = min(240.0, float(np.nanmax(km_t)) if km_t is not None else 240.0)
+    t_grid = np.linspace(0.0, t_max, 260)
+
+    handles = []
+    labels = []
+    if km_t is not None:
+        km_line = ax.step(km_t, km_s, where="post", color=BRAND["ink"],
+                          lw=1.0, label="Kaplan-Meier")[0]
+        ci = getattr(KM_TRAIN, "confidence_interval_", None)
+        if ci is not None and not ci.empty and ci.shape[1] >= 2:
+            ci_t = ci.index.to_numpy(dtype=float)
+            lo = ci.iloc[:, 0].to_numpy(dtype=float)
+            hi = ci.iloc[:, 1].to_numpy(dtype=float)
+            ax.fill_between(ci_t, lo, hi, step="post", color=BRAND["ink"],
+                            alpha=0.08, linewidth=0, zorder=0)
+        handles.append(km_line)
+        labels.append("Kaplan-Meier")
+
+    colors = [BRAND["blue"], _AFT_CLR, BRAND["green"], BRAND["red"]]
+    for (name, fitter), clr in zip(DIST["fitters"].items(), colors):
+        is_best = (name == DIST["best"])
+        sf_vals = _survival_at_times(fitter, t_grid)
+        line = ax.plot(
+            t_grid, sf_vals, color=clr, lw=1.0,
+            ls="-" if is_best else "--",
+            alpha=1.0 if is_best else 0.68,
+            label=f"{name}{' (best)' if is_best else ''}",
+            zorder=3 if is_best else 2,
+        )[0]
+        handles.append(line)
+        labels.append(f"{name}{' (best)' if is_best else ''}")
+
+    ax.set_xlabel("Time (months)")
+    ax.set_ylabel("Survival Probability")
+    ax.set_xlim(0, t_max)
+    ax.set_ylim(0, 1.05)
+    ax.legend(handles, labels, loc="upper right", frameon=False,
+              fontsize=7.5, handlelength=2.0, borderaxespad=0.4)
+    fig.tight_layout(pad=0.7)
+    return fig
+
+
+def _make_perf_plot(is_narrow: bool):
+    if is_narrow:
+        fig = plt.figure(figsize=(4.5, 6.4))
+        gs = fig.add_gridspec(2, 1, hspace=0.70)
+        axs = [fig.add_subplot(gs[i, 0]) for i in range(2)]
+    else:
+        fig = plt.figure(figsize=(10.3, 4.9))
+        gs = fig.add_gridspec(1, 2, wspace=0.42)
+        axs = [fig.add_subplot(gs[0, i]) for i in range(2)]
+
+    # Light gridlines only behind the AUC panel (B); the forest plot stays clean.
+    _cell_ax(fig, axs[0])
+    _cell_ax(fig, axs[1], grid=True)
+
+    # ── A: C-index forest plot ────────────────────────────────────────────
+    ax = axs[0]
+    names  = ["Cox PH", f"{DIST['best']} AFT"]
+    ci_v   = [RES_COX["c_index"],  RES_AFT["c_index"]]
+    ci_lo  = [RES_COX["ci_lo"],    RES_AFT["ci_lo"]]
+    ci_hi  = [RES_COX["ci_hi"],    RES_AFT["ci_hi"]]
+    colors = [_COX_CLR, _AFT_CLR]
+
+    ax.axvline(0.5, color=_REF_GRAY, lw=0.8, ls="--", zorder=0)
+    for i, (n, c, lo, hi, clr) in enumerate(
+            zip(names, ci_v, ci_lo, ci_hi, colors)):
+        xerr = np.array([[c - lo], [hi - c]])
+        ax.errorbar(c, i, xerr=xerr, fmt="o", color=clr, ecolor=clr,
+                    elinewidth=0.8, capsize=3, markersize=4, zorder=5)
+
+    ax.set_yticks(range(len(names)))
+    ax.set_yticklabels(names, fontsize=7.5)
+    x_min = max(0.45, min(ci_lo) - 0.05)
+    x_max = min(0.92, max(ci_hi) + 0.08)
+    ax.set_xlim(x_min, x_max)
+    for i, (c, hi, clr) in enumerate(zip(ci_v, ci_hi, colors)):
+        x_pos = min(hi + 0.010, x_max - 0.012)
+        ha = "left" if x_pos < x_max - 0.02 else "right"
+        ax.text(x_pos, i, f"{c:.3f}", va="center", ha=ha, fontsize=7.6,
+                color=clr, fontweight="600")
+    ax.set_xlabel("C-index (95% CI)", labelpad=4)
+    ax.set_title("A. C-index", fontweight="bold", loc="left",
+                 fontsize=9.0, pad=6)
+    ax.tick_params(axis="y", pad=3)
+
+    # ── B: Time-dependent AUC ─────────────────────────────────────────────
+    ax = axs[1]
+    auc_min = 1.0
+    auc_max = 0.5
+    for res, clr, nm in [
+        (RES_COX, _COX_CLR, "Cox"),
+        (RES_AFT, _AFT_CLR, "AFT"),
+    ]:
+        if not any(np.isnan(res["auc_vals"])):
+            auc_vals = np.array(res["auc_vals"], dtype=float)
+            auc_min = min(auc_min, float(np.nanmin(auc_vals)))
+            auc_max = max(auc_max, float(np.nanmax(auc_vals)))
+            ax.plot(res["times"], auc_vals, color=clr, lw=1.1,
+                    marker="o", ms=4,
+                    label=f"{nm} mean={res['mean_auc']:.3f}")
+
+    ax.axhline(0.5, color=_REF_GRAY, lw=0.8, ls="--")
+    ax.set_ylim(max(0.45, auc_min - 0.08), min(1.0, auc_max + 0.10))
+    ax.set_xlabel("Time (months)", labelpad=5)
+    ax.set_ylabel("Dynamic AUC", labelpad=2)
+    ax.set_title("B. Time-dependent AUC", fontweight="bold",
+                 loc="left", fontsize=9.0, pad=6)
+    ax.legend(fontsize=7.5, frameon=False, loc="lower right",
+              handlelength=2.2, borderaxespad=0.2)
+    if is_narrow:
+        fig.subplots_adjust(
+            left=0.22, right=0.95, top=0.97, bottom=0.09, hspace=0.70,
+        )
+    else:
+        fig.subplots_adjust(
+            left=0.095, right=0.985, top=0.90, bottom=0.18, wspace=0.42,
+        )
+
+    return fig
+
+
+_PERF_DESKTOP_IMG = _figure_tag(
+    _make_perf_plot(False),
+    "C-index and time-dependent AUC model performance comparison",
+)
+_PERF_MOBILE_IMG = _figure_tag(
+    _make_perf_plot(True),
+    "C-index and time-dependent AUC model performance comparison",
+)
+_DIST_IMG = _figure_tag(
+    _make_dist_fig(),
+    "Marginal survival distribution with parametric fits",
+)
+print("  Static figures rendered.", flush=True)
+
+
 # ── 4. CSS (Cell Press style) ────────────────────────────────────────────────
 
 _CSS = """
-:root {
-  --red:#E64B35;--blue:#4DBBD5;--teal:#00A087;--navy:#3C5488;--salmon:#F39B7F;
-  --lav:#8491B4;--mint:#91D1C2;--crimson:#DC0000;--brown:#7E6148;--tan:#B09C85;
-  --ink:var(--navy);--accent:var(--blue);--accent-2:var(--teal);--surface:#FFFFFF;
-  --line:rgba(60,84,136,.16);--muted:rgba(60,84,136,.78);--white:#FFFFFF;
-  --shadow-sm:0 10px 28px rgba(60,84,136,.08);--shadow-lg:0 24px 60px rgba(60,84,136,.12);
-  --r:18px; --r-sm:12px;
-  --font:'Arial','Helvetica','Liberation Sans','DejaVu Sans',sans-serif;
+
+:root{
+  --red:#E11D48;--blue:#06B6D4;--teal:#A855F7;--navy:#7C3AED;--salmon:#EC4899;
+  --lav:#A78BFA;--mint:#A78BFA;--crimson:#DC2626;--brown:#64748B;--tan:#F59E0B;
+  --ink:#1E293B;--muted:#64748B;--surface:#FFFFFF;--white:#FFFFFF;--bg:#FFFFFF;
+  --line:#E2E8F0;--line-strong:#CBD5E1;
+  --accent:#7C3AED;--accent-dark:#6D28D9;
+  --r:8px;--r-sm:6px;
+  --font:'Arial','Helvetica Neue',Helvetica,'Liberation Sans','DejaVu Sans',sans-serif;
+  --serif:'Arial','Helvetica Neue',Helvetica,'Liberation Sans',sans-serif;
 }
 html,body{
   height:100%;
   font-family:var(--font);
   font-size:15px;
   font-variant-numeric:tabular-nums;
-  background:#F7FBFD;
+  background:var(--bg);
   color:var(--ink);
   -webkit-font-smoothing:antialiased;
 }
-
+/* Masthead — journal style: white bar, hairline, purple rule */
 .navbar{
-  background:rgba(255,255,255,.96)!important;border-bottom:1px solid var(--line)!important;
-  padding:.88rem 1.8rem;box-shadow:var(--shadow-sm);position:relative;backdrop-filter:blur(14px);}
-.navbar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:4px;
-  background:var(--accent);}
-.navbar-brand{color:var(--ink)!important;font-weight:800;font-size:1.02rem;letter-spacing:.18px;}
-
+  background:linear-gradient(90deg,#6D28D9,#7C3AED 60%,#9333EA)!important;
+  border-bottom:none!important;
+  box-shadow:0 4px 14px rgba(109,40,217,.25)!important;
+  padding:.9rem 1.5rem;
+}
+.navbar::after{display:none;}
+.navbar-brand{
+  color:#FFFFFF!important;
+  font-weight:800;
+  font-size:1.05rem;
+  letter-spacing:.2px;
+}
+.navbar-brand::before{
+  content:"";
+  display:inline-block;
+  width:10px;height:10px;
+  background:#FFFFFF;
+  border-radius:2px;
+  margin-right:.6rem;
+}
+/* Sidebar */
 .bslib-sidebar-layout>.sidebar{
-  background:rgba(255,255,255,.95)!important;border-right:1px solid var(--line)!important;
-  box-shadow:var(--shadow-sm);overflow-y:auto;height:100%;padding:1.1rem 1.2rem 1.5rem;}
-
-.sec{font-size:.74rem;font-weight:800;color:var(--ink);text-transform:uppercase;
-  letter-spacing:1.6px;margin:1.4rem 0 .8rem;padding:0 0 .35rem .8rem;
-  border-left:5px solid var(--accent-2);line-height:1.35;}
-.sec:first-child{margin-top:.25rem;}
-
-.form-label{font-size:.95rem;font-weight:700;color:var(--ink);margin-bottom:.42rem;display:block;}
-.form-control,.form-select{font-size:.86rem;border:1px solid rgba(60,84,136,.18);border-radius:var(--r-sm);
-  background:var(--white);padding:.7rem .86rem;min-height:2.95rem;color:var(--ink);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.7);
-  transition:border-color .16s,box-shadow .16s,background .16s,transform .16s;}
-.form-control:focus,.form-select:focus{border-color:var(--accent);background:white;
-  box-shadow:0 0 0 4px rgba(77,187,213,.18);outline:none;}
+  background:#FBF9FF!important;
+  border-right:1px solid var(--line)!important;
+  box-shadow:none!important;
+  overflow-y:auto;
+  height:100%;
+  padding:1.15rem 1.25rem 1.6rem;
+}
+.sec{
+  font-size:.68rem;
+  font-weight:800;
+  color:#5B21B6;
+  text-transform:uppercase;
+  letter-spacing:1.8px;
+  margin:1.3rem 0 .75rem;
+  padding:0 0 .3rem .7rem;
+  border-left:3px solid var(--accent);
+  line-height:1.35;
+}
+.sec:first-child{margin-top:.2rem;}
+/* Forms */
+.form-label{font-size:.88rem;font-weight:700;color:#5B21B6;margin-bottom:.42rem;display:block;}
+.form-control,.form-select{
+  font-size:.86rem;
+  border:1px solid var(--line-strong);
+  border-radius:var(--r-sm);
+  background:var(--surface);
+  padding:.7rem .86rem;
+  min-height:2.95rem;
+  color:var(--ink);
+  box-shadow:none;
+  transition:border-color .16s,box-shadow .16s;
+}
+.form-control:focus,.form-select:focus{
+  border-color:var(--accent);
+  background:white;
+  box-shadow:0 0 0 3px rgba(124,58,237,.15);
+  outline:none;
+}
 .form-select{
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2300A087' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23647569' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 12px center;background-size:12px;
-  padding-right:2.3rem;-webkit-appearance:none;appearance:none;cursor:pointer;}
+  padding-right:2.3rem;-webkit-appearance:none;appearance:none;cursor:pointer;
+}
+/* Selectize — themed dropdowns */
+.selectize-control.single .selectize-input{
+  border:1px solid var(--line-strong)!important;
+  border-radius:var(--r-sm)!important;
+  box-shadow:none!important;
+  background:linear-gradient(90deg,#6D28D9,#7C3AED 60%,#9333EA)!important;
+  min-height:2.95rem;
+  padding:.62rem .8rem;
+  font-size:.86rem;
+  color:var(--ink)!important;
+}
+.selectize-control.single .selectize-input.focus{
+  border-color:var(--accent)!important;
+  box-shadow:0 0 0 3px rgba(124,58,237,.15)!important;
+}
+.selectize-dropdown{border:1px solid var(--line-strong)!important;border-radius:var(--r-sm)!important;}
+.selectize-dropdown .option.active{background:var(--accent)!important;color:#FFFFFF!important;}
+.selectize-control .selectize-input .item{color:#5B21B6!important;}
+/* Buttons — flat, journal-adjacent */
 .btn-primary{
   background:var(--accent)!important;
-  border:none!important;border-radius:14px!important;font-size:.88rem!important;
-  font-weight:700!important;letter-spacing:.1px;padding:.84rem 1rem!important;
-  box-shadow:0 12px 24px rgba(60,84,136,.16);}
-.btn-primary:hover{transform:translateY(-1px);}
-
+  border:none!important;
+  border-radius:var(--r-sm)!important;
+  color:#FFFFFF!important;
+  font-size:.78rem!important;
+  font-weight:800!important;
+  letter-spacing:.9px;
+  text-transform:uppercase;
+  padding:.8rem 1rem!important;
+  box-shadow:none!important;
+}
+.btn-primary:hover{background:var(--accent-dark)!important;transform:none!important;}
+/* Main column */
 .bslib-sidebar-layout>.main{padding:clamp(18px,2.6vw,30px)!important;}
 .card-body{padding:clamp(14px,1.7vw,20px)!important;}
-
-.page-title{font-size:clamp(1.55rem,1.9vw,2rem);font-weight:800;color:var(--ink);
-  display:inline-block;margin:.15rem 0 .3rem;letter-spacing:-.03em;position:relative;}
-.page-title::after{content:"";display:block;height:4px;width:min(100%,26rem);
-  background:var(--accent);border-radius:999px;margin-top:.6rem;}
-.page-subtitle{color:var(--muted);font-size:.84rem;margin-bottom:1.25rem;line-height:1.58;max-width:70rem;}
-
-.infobar{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:18px;}
-.metric-chip{background:rgba(255,255,255,.92);border:1px solid var(--line);border-top:4px solid var(--accent);
-  border-radius:16px;padding:.88rem 1rem;display:flex;flex-direction:column;gap:.25rem;
-  box-shadow:var(--shadow-sm);}
-.metric-chip:nth-child(2n){border-top-color:var(--teal);}
-.metric-chip:nth-child(3n){border-top-color:var(--navy);}
-.metric-chip:nth-child(4n){border-top-color:var(--salmon);}
-.mc-label{font-size:.62rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;}
+/* Hero */
+.hero-copy{margin-bottom:1.1rem;}
+.hero-kicker{
+  font-size:.64rem;
+  font-weight:800;
+  color:var(--accent);
+  text-transform:uppercase;
+  letter-spacing:2px;
+  margin-bottom:.35rem;
+}
+.page-title{
+  font-family:var(--font);
+  font-size:clamp(1.6rem,2vw,2.05rem);
+  font-weight:800;
+  color:#5B21B6;
+  display:inline-block;
+  margin:.15rem 0 .3rem;
+  letter-spacing:0;
+  position:relative;
+}
+.page-title::after{
+  content:"";
+  display:block;
+  height:3px;
+  width:min(100%,26rem);
+  background:var(--accent);
+  border-radius:999px;
+  margin-top:.6rem;
+}
+.page-subtitle{
+  color:var(--muted);
+  font-size:.84rem;
+  margin-bottom:1.25rem;
+  line-height:1.58;
+  max-width:70rem;
+}
+/* Cards — flat panels with hairline rules */
+.card{
+  border:1px solid #E9D5FF!important;
+  border-radius:var(--r)!important;
+  box-shadow:none!important;
+  background:var(--surface)!important;
+  overflow:hidden;
+  margin-bottom:16px;
+  position:relative;
+}
+.card::before{display:none;}
+.card-header{
+  background:#FAF8FF!important;
+  border-bottom:1px solid #EDE9FE!important;
+  border-left:3px solid var(--accent);
+  color:#5B21B6!important;
+  font-weight:800;
+  font-size:.86rem;
+  letter-spacing:.2px;
+  padding:.8rem 1.1rem;
+}
+/* Key-result blocks — flat white, coloured values */
+.infobar{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;}
+.metric-chip{
+  background:var(--surface);
+  border:1px solid #E9D5FF;
+  border-top:2px solid var(--accent);
+  border-radius:var(--r);
+  padding:.88rem 1rem;
+  display:flex;
+  flex-direction:column;
+  gap:.25rem;
+}
+.mc-label{font-size:.62rem;font-weight:800;color:#6D28D9;text-transform:uppercase;letter-spacing:1px;}
 .mc-value{font-size:1rem;font-weight:800;color:var(--ink);white-space:nowrap;}
-.mc-cox{color:var(--ink)!important;}
-.mc-aft{color:var(--accent-2)!important;}
-
-.card{border:1px solid var(--line)!important;border-radius:var(--r)!important;
-  box-shadow:var(--shadow-sm)!important;background:rgba(255,255,255,.93)!important;
-  overflow:hidden;margin-bottom:16px;position:relative;}
-.card::before{content:"";display:block;height:4px;
-  background:var(--accent);}
-.card-header{background:rgba(255,255,255,.88)!important;border-bottom:1px solid rgba(60,84,136,.10)!important;
-  color:var(--ink)!important;font-weight:800;font-size:.88rem;letter-spacing:.14px;padding:1rem 1.2rem;}
-.plot-frame{width:100%;height:clamp(300px,32vw,420px);
-  display:flex;align-items:center;justify-content:center;overflow:hidden;}
-.plot-frame.plot-map{height:clamp(260px,31vw,390px);}
-.plot-frame.plot-survival{height:clamp(320px,30vw,400px);}
-.plot-frame.plot-tall{height:clamp(360px,31vw,460px);}
-.plot-frame .shiny-plot-output{width:100%!important;height:100%!important;}
-.plot-frame .shiny-plot-output img,.plot-frame .shiny-plot-output canvas{
+.mc-cox{color:#4F46E5!important;}
+.mc-aft{color:#EC4899!important;}
+.summary-grid,.stage-grid,.note-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 16px;}
+.summary-tile,.stage-tile{
+  position:relative;
+  overflow:hidden;
+  background:var(--surface);
+  border:1px solid #E9D5FF;
+  border-top:2px solid var(--accent);
+  border-radius:var(--r);
+  padding:14px 14px 12px;
+}
+.summary-tile.accent-blue{--tile-ink:#0E7490;}
+.summary-tile.accent-teal{--tile-ink:#7E22CE;}
+.summary-tile.accent-navy{--tile-ink:#6D28D9;}
+.summary-tile.accent-salmon{--tile-ink:#BE185D;}
+.stage-1{--stage-ink:#0E7490;}
+.stage-2{--stage-ink:#6D28D9;}
+.stage-3{--stage-ink:#7E22CE;}
+.stage-4{--stage-ink:#B45309;}
+.summary-label,.stage-kicker{font-size:.64rem;font-weight:800;color:#6D28D9;text-transform:uppercase;letter-spacing:1px;}
+.summary-value,.stage-value{font-size:1.24rem;font-weight:800;color:var(--tile-ink,var(--stage-ink,var(--ink)));line-height:1.1;margin-top:8px;}
+.summary-detail,.stage-detail{font-size:.78rem;color:var(--muted);line-height:1.48;margin-top:7px;}
+.section-head{display:flex;flex-direction:column;gap:4px;margin:0 0 14px;}
+.section-eyebrow{font-size:.64rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:1.6px;}
+.section-title{margin:0;font-size:1.08rem;font-weight:800;color:#5B21B6;}
+.section-copy{margin:0;max-width:60rem;font-size:.82rem;line-height:1.55;color:var(--muted);}
+.note-block{
+  background:var(--surface);
+  border:0;
+  border-left:3px solid var(--accent);
+  padding:9px 12px;
+}
+.note-title{font-size:.72rem;font-weight:800;color:#5B21B6;text-transform:uppercase;letter-spacing:.7px;}
+.note-copy{margin:6px 0 0;font-size:.78rem;line-height:1.5;color:var(--muted);}
+/* Tabs — flat journal section tabs */
+.nav-tabs{
+  border:0!important;
+  border-bottom:1px solid #DDD6FE!important;background:#FBF9FF!important;
+  margin-bottom:20px;
+  gap:4px;
+  flex-wrap:wrap;
+}
+.nav-tabs .nav-link{
+  color:#7E22CE!important;
+  background:transparent!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+  font-size:.78rem;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+  padding:.6rem .95rem!important;
+  margin-bottom:-1px;
+  transition:color .14s,border-color .14s;
+}
+.nav-tabs .nav-link:hover{color:var(--ink)!important;background:#F5F3FF!important;transform:none!important;}
+.nav-tabs .nav-link.active{
+  color:var(--ink)!important;
+  font-weight:800;
+  background:transparent!important;
+  border-bottom:2px solid var(--accent)!important;
+  box-shadow:none!important;
+}
+/* Tables — journal rules (thick top, header hairline, no fills) */
+.prob-tbl,.mtbl{width:100%;border-collapse:collapse;font-size:.82rem;}
+.prob-tbl th,.mtbl th{
+  text-align:left;color:#5B21B6;font-weight:800;padding:.7rem .7rem;
+  background:#FAF8FF;
+  border-top:2px solid #475569;
+  border-bottom:1px solid #475569;
+  font-size:.62rem!important;text-transform:uppercase;
+  letter-spacing:.8px;white-space:nowrap;
+}
+.prob-tbl td,.mtbl td{padding:.7rem .7rem;border-bottom:1px solid #F1F5F9;
+  font-variant-numeric:tabular-nums;font-size:.82rem!important;}
+.prob-tbl td.val,.mtbl td.num{text-align:right;font-weight:700;color:var(--ink);}
+.prob-tbl td.cox{color:#4F46E5;}
+.prob-tbl td.aft{color:#EC4899;}
+.prob-tbl tr:hover td,.mtbl tr:hover td{background:#FAF5FF;}
+.mtbl tr.best td{background:#F5F3FF;}
+/* Plot & figure frames — uniform sizing and spacing */
+.plot-frame{
+  width:100%;
+  height:clamp(250px,22vw,340px);
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;
+  padding:8px;
+  box-sizing:border-box;
+}
+.plot-frame.plot-map{height:clamp(240px,28vw,340px);}
+.plot-frame.plot-survival{height:clamp(240px,20vw,340px);}
+.plot-frame.plot-survival-full{height:clamp(300px,34vw,500px);}
+.plot-frame.plot-tall{height:clamp(320px,28vw,400px);}
+.plot-frame .shiny-plot-output,.plot-frame .shiny-html-output{width:100%!important;height:100%!important;}
+.plot-frame .shiny-plot-output img,.plot-frame .shiny-plot-output canvas,
+.plot-frame .shiny-html-output img{
   width:100%!important;height:100%!important;max-width:100%!important;
-  max-height:100%!important;object-fit:contain!important;object-position:center center!important;}
+  max-height:100%!important;object-fit:contain!important;object-position:center center!important;
+}
+.figure-caption{
+  font-size:.74rem;
+  color:var(--muted);
+  line-height:1.5;
+  border-top:1px solid #E9D5FF;
+  padding-top:.5rem;
+  margin:.45rem 0 0;
+}
+/* Responsive performance figures — bounded size, centered, framed */
+.responsive-figure{
+  display:flex;
+  justify-content:center;
+  padding:8px;
+  box-sizing:border-box;
+}
+.responsive-figure img{
+  display:block;
+  width:auto!important;
+  height:auto!important;
+  max-width:100%;
+  max-height:520px;
+  object-fit:contain;
+  margin:0 auto;
+  border:1px solid #E9D5FF;
+  border-radius:4px;
+}
+.responsive-plot-mobile{display:none;}
 .equal-card{height:100%;display:flex;flex-direction:column;}
 .equal-card .card-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
+.equal-card .plot-frame{flex:0 0 auto;}
 .plot-frame,.result-frame{flex:1 1 auto;min-height:0;}
 .result-frame{display:flex;flex-direction:column;justify-content:flex-start;}
-.result-frame.result-map{min-height:clamp(260px,31vw,390px);}
-.result-frame.result-survival,.result-frame.result-dist{min-height:clamp(320px,34vw,440px);}
-.nav-tabs{border:0!important;margin-bottom:18px;gap:10px;flex-wrap:wrap;}
-.nav-tabs .nav-link{color:var(--muted)!important;font-size:.84rem;font-weight:700;
-  border:1px solid rgba(60,84,136,.14)!important;padding:.68rem 1.1rem;
-  margin-bottom:0;border-radius:999px;background:rgba(255,255,255,.82)!important;
-  box-shadow:0 6px 18px rgba(60,84,136,.05);
-  transition:color .14s,background .14s,transform .14s,box-shadow .14s,border-color .14s;}
-.nav-tabs .nav-link:hover{color:var(--ink)!important;background:rgba(77,187,213,.10)!important;
-  border-color:rgba(77,187,213,.32)!important;transform:translateY(-1px);}
-.nav-tabs .nav-link.active{color:var(--ink)!important;font-weight:800;
-  border-color:transparent!important;background:rgba(77,187,213,.18)!important;
-  box-shadow:var(--shadow-sm);}
-
-.prob-tbl{width:100%;border-collapse:collapse;font-size:.82rem;}
-.prob-tbl th{text-align:left;color:var(--ink);font-weight:700;padding:.72rem .8rem;
-  border-bottom:2px solid rgba(60,84,136,.12);font-size:.64rem!important;text-transform:uppercase;
-  letter-spacing:.65px;white-space:nowrap;}
-.prob-tbl td{padding:.72rem .8rem;border-bottom:1px solid rgba(132,145,180,.14);
-  font-variant-numeric:tabular-nums;font-size:.82rem!important;}
-.prob-tbl td.val{font-weight:700;}
-.prob-tbl td.cox{color:var(--ink);}
-.prob-tbl td.aft{color:var(--accent-2);}
-.prob-tbl tr:hover td{background:rgba(145,209,194,.12);}
-.prob-card{display:flex;flex-direction:column;gap:10px;margin-top:2px;}
-.prob-row{display:grid;grid-template-columns:56px minmax(0,1fr) 64px;gap:10px;align-items:center;
-  padding:9px 0;border-bottom:1px solid rgba(132,145,180,.14);}
-.prob-time{font-size:.72rem;font-weight:800;color:var(--ink);}
-.prob-track{display:grid;gap:5px;min-width:0;}
-.prob-bar{height:8px;background:rgba(132,145,180,.14);border-radius:999px;overflow:hidden;}
-.prob-fill{height:100%;border-radius:999px;}
-.prob-meta{display:flex;justify-content:space-between;gap:8px;font-size:.67rem;color:var(--muted);
-  white-space:nowrap;}
-.prob-diff{text-align:right;font-size:.72rem;font-weight:800;}
-
+.result-frame.result-map{min-height:clamp(240px,28vw,340px);}
+.result-frame.result-survival,.result-frame.result-dist{min-height:clamp(240px,20vw,340px);}
+/* Rich colour layer */
+.hero-banner{
+  background:linear-gradient(120deg,#6D28D9,#7C3AED 45%,#9333EA);
+  border-radius:12px;
+  padding:22px 24px 16px;
+  margin-bottom:18px;
+}
+.hero-banner .hero-copy{margin-bottom:.9rem;}
+.hero-banner .hero-kicker{color:#DDD6FE;}
+.hero-banner .page-title{color:#FFFFFF;}
+.hero-banner .page-title::after{background:#F0ABFC;}
+.hero-banner .page-subtitle{color:rgba(255,255,255,.88);}
+.hero-banner .summary-grid{margin-bottom:0;}
+.hero-banner .summary-tile{
+  background:rgba(255,255,255,.14)!important;
+  border:1px solid rgba(255,255,255,.28)!important;
+  border-top:3px solid #F0ABFC!important;
+}
+.hero-banner .summary-label{color:rgba(255,255,255,.8);}
+.hero-banner .summary-value{color:#FFFFFF;}
+.hero-banner .summary-detail{color:rgba(255,255,255,.84);}
+.chip{background:var(--tint,#F5F3FF);border-top:3px solid var(--tile,var(--accent));}
+.metric-chip{background:var(--tint,#F5F3FF);border-top:3px solid var(--tile,var(--accent));}
+.summary-tile{background:var(--tint,#F5F3FF);border-top:3px solid var(--tile,var(--accent));}
+.stage-tile{background:var(--stint,#F5F3FF);border-top:3px solid var(--stage,var(--accent));}
+.summary-tile.accent-blue{--tile:#06B6D4;--tint:#ECFEFF;--tile-ink:#0E7490;}
+.summary-tile.accent-teal{--tile:#A855F7;--tint:#FAF5FF;--tile-ink:#7E22CE;}
+.summary-tile.accent-navy{--tile:#7C3AED;--tint:#F5F3FF;--tile-ink:#6D28D9;}
+.summary-tile.accent-salmon{--tile:#EC4899;--tint:#FDF2F8;--tile-ink:#BE185D;}
+.summary-tile.accent-crimson{--tile:#DC2626;--tint:#FEF2F2;--tile-ink:#B91C1C;}
+.stage-1{--stage:#06B6D4;--stint:#ECFEFF;--stage-ink:#0E7490;}
+.stage-2{--stage:#7C3AED;--stint:#F5F3FF;--stage-ink:#6D28D9;}
+.stage-3{--stage:#EC4899;--stint:#FDF2F8;--stage-ink:#BE185D;}
+.stage-4{--stage:#F59E0B;--stint:#FFFBEB;--stage-ink:#B45309;}
+.cm-cell.cm-tp,.cm-cell.cm-fn{background:#FEF2F2;border-color:#FECACA;}
+.cm-cell.cm-fp{background:#FFFBEB;border-color:#FDE68A;}
+.cm-cell.cm-tn{background:#ECFEFF;border-color:#A5F3FC;}
+.fig-no{color:#6D28D9;font-weight:800;}/* Misc */
+.disclaimer{
+  color:var(--muted);
+  font-size:.74rem;
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid #E9D5FF;
+  text-align:center;
+  line-height:1.65;
+}
 .methods{font-size:.82rem;line-height:1.58;color:var(--ink);}
-.methods h4{font-size:.78rem;font-weight:800;color:var(--accent);
+.methods h4{
+  font-size:.68rem;font-weight:800;color:#5B21B6;
   text-transform:uppercase;letter-spacing:1.2px;margin:16px 0 8px;
-  padding-left:10px;border-left:4px solid var(--accent-2);}
+  padding-left:10px;border-left:3px solid var(--accent);
+}
 .methods p{margin:0 0 12px;}
-.mtbl{width:100%;border-collapse:collapse;font-size:.82rem;}
-.mtbl th{text-align:left;color:var(--ink);font-weight:700;padding:.72rem .7rem;
-  border-bottom:2px solid rgba(60,84,136,.12);font-size:.64rem!important;text-transform:uppercase;
-  letter-spacing:.65px;}
-.mtbl td{padding:.72rem .7rem;border-bottom:1px solid rgba(132,145,180,.14);font-size:.82rem!important;}
-.mtbl td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink);}
-.mtbl tr.best td{background:rgba(145,209,194,.16);}
-
-.disclaimer{color:var(--muted);font-size:.74rem;margin-top:10px;padding-top:10px;
-  border-top:1px solid var(--line);text-align:center;line-height:1.65;}
-
 .bslib-page-fill{height:100dvh!important;}
 .tab-content{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
 .tab-pane.active{flex:1 1 auto;min-height:0;display:flex!important;flex-direction:column;gap:0;}
 .tab-pane.active>*{flex-shrink:0;}
+@media (max-width: 1100px){
+  .summary-grid,.stage-grid,.note-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
 @media (max-width: 900px){
   html,body{font-size:14px;}
   .bslib-sidebar-layout>.sidebar{padding:1rem .95rem 1.3rem;}
   .bslib-sidebar-layout>.main{padding:14px!important;}
   .page-title{font-size:clamp(1.4rem,6.5vw,1.8rem);}
   .page-subtitle{font-size:.8rem;}
-  .plot-frame{height:clamp(270px,72vw,380px);}
-  .plot-frame.plot-map{height:clamp(220px,64vw,320px);}
-  .plot-frame.plot-survival{height:clamp(300px,74vw,400px);}
-  .plot-frame.plot-tall{height:clamp(360px,82vw,450px);}
-  .result-frame.result-map{min-height:clamp(220px,64vw,320px);}
-  .result-frame.result-survival,.result-frame.result-dist{min-height:clamp(260px,74vw,380px);}
-  .nav-tabs .nav-link{padding:.5rem .82rem;font-size:.8rem;}
+  .plot-frame{height:clamp(220px,60vw,320px);}
+  .plot-frame.plot-map{height:clamp(220px,60vw,310px);}
+  .plot-frame.plot-survival{height:clamp(230px,64vw,330px);}
+  .plot-frame.plot-survival-full{height:clamp(280px,74vw,460px);}
+  .plot-frame.plot-tall{height:clamp(300px,80vw,400px);}
+  .result-frame.result-map{min-height:clamp(220px,60vw,310px);}
+  .result-frame.result-survival,.result-frame.result-dist{min-height:clamp(230px,64vw,330px);}
+  .nav-tabs .nav-link{padding:.5rem .8rem;font-size:.74rem;}
   .prob-row{grid-template-columns:48px minmax(0,1fr) 56px;gap:8px;}
-}
-"""
-
-_CSS += """
-:root{--r:8px;--r-sm:8px;}
-.card,.metric-chip{border-radius:8px!important;}
-.btn-primary{border-radius:8px!important;}
-.hero-copy{margin-bottom:1rem;}
-.hero-kicker{
-  font-size:.68rem;
-  font-weight:800;
-  color:var(--accent-2);
-  text-transform:uppercase;
-  letter-spacing:1.1px;
-  margin-bottom:.35rem;
-}
-.summary-grid{
-  display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
-  gap:12px;
-  margin:0 0 18px;
-}
-.summary-tile{
-  position:relative;
-  overflow:hidden;
-  background:rgba(255,255,255,.9);
-  border:1px solid var(--line);
-  border-radius:8px;
-  padding:14px 14px 12px;
-  box-shadow:0 8px 22px rgba(60,84,136,.08);
-}
-.summary-tile::before{
-  content:"";
-  position:absolute;
-  left:0;
-  top:0;
-  bottom:0;
-  width:4px;
-  background:var(--tile);
-}
-.summary-tile.accent-blue{--tile:var(--blue);}
-.summary-tile.accent-teal{--tile:var(--teal);}
-.summary-tile.accent-navy{--tile:var(--navy);}
-.summary-tile.accent-salmon{--tile:var(--salmon);}
-.summary-label{
-  font-size:.66rem;
-  font-weight:800;
-  color:var(--muted);
-  text-transform:uppercase;
-  letter-spacing:.8px;
-}
-.summary-value{
-  font-size:1.24rem;
-  font-weight:800;
-  color:var(--ink);
-  line-height:1.1;
-  margin-top:8px;
-}
-.summary-detail{
-  font-size:.78rem;
-  color:var(--muted);
-  line-height:1.48;
-  margin-top:7px;
-}
-.section-head{
-  display:flex;
-  flex-direction:column;
-  gap:4px;
-  margin:0 0 14px;
-}
-.section-eyebrow{
-  font-size:.66rem;
-  font-weight:800;
-  color:var(--accent-2);
-  text-transform:uppercase;
-  letter-spacing:.9px;
-}
-.section-title{
-  margin:0;
-  font-size:1.08rem;
-  font-weight:800;
-  color:var(--ink);
-}
-.section-copy{
-  margin:0;
-  max-width:60rem;
-  font-size:.82rem;
-  line-height:1.55;
-  color:var(--muted);
-}
-.stage-grid{
-  display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
-  gap:12px;
-  margin:0 0 18px;
-}
-.stage-tile{
-  position:relative;
-  overflow:hidden;
-  background:rgba(255,255,255,.88);
-  border:1px solid var(--line);
-  border-radius:8px;
-  padding:14px 14px 12px;
-  box-shadow:0 8px 22px rgba(60,84,136,.08);
-}
-.stage-tile::before{
-  content:"";
-  position:absolute;
-  inset:0 auto 0 0;
-  width:4px;
-  background:var(--stage);
-}
-.stage-1{--stage:var(--blue);}
-.stage-2{--stage:var(--teal);}
-.stage-3{--stage:var(--navy);}
-.stage-4{--stage:var(--salmon);}
-.stage-kicker{
-  font-size:.68rem;
-  font-weight:800;
-  color:var(--muted);
-  text-transform:uppercase;
-  letter-spacing:.8px;
-}
-.stage-value{
-  font-size:1.2rem;
-  font-weight:800;
-  color:var(--ink);
-  line-height:1.1;
-  margin-top:8px;
-}
-.stage-detail{
-  font-size:.78rem;
-  color:var(--muted);
-  line-height:1.48;
-  margin-top:7px;
-}
-.note-grid{
-  display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:12px;
-  margin:0 0 18px;
-}
-.note-block{
-  background:rgba(255,255,255,.72);
-  border:1px dashed rgba(60,84,136,.28);
-  border-radius:8px;
-  padding:12px 14px;
-}
-.note-title{
-  font-size:.72rem;
-  font-weight:800;
-  color:var(--ink);
-  text-transform:uppercase;
-  letter-spacing:.65px;
-}
-.note-copy{
-  margin:6px 0 0;
-  font-size:.78rem;
-  line-height:1.5;
-  color:var(--muted);
-}
-@media (max-width: 1100px){
-  .summary-grid,.stage-grid,.note-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
 @media (max-width: 700px){
   .summary-grid,.stage-grid,.note-grid{grid-template-columns:1fr;}
-}
-"""
-
-_CSS += """
-*{letter-spacing:0!important;}
-html,body{background:#FFFFFF;}
-.navbar{
-  background:#FFFFFF!important;
-  box-shadow:none;
-  backdrop-filter:none;
-  padding:.78rem 1.35rem;
-}
-.navbar::after{height:3px;background:var(--red);}
-.bslib-sidebar-layout>.sidebar{
-  background:#FFFFFF!important;
-  box-shadow:none;
-}
-.bslib-sidebar-layout>.main{background:#FFFFFF;}
-.page-title{font-size:1.7rem;letter-spacing:0;}
-.page-title::after{height:3px;border-radius:0;background:var(--red);}
-.card,.summary-tile,.stage-tile,.metric-chip{
-  background:#FFFFFF!important;
-  border:1px solid rgba(60,84,136,.28)!important;
-  box-shadow:none!important;
-  border-radius:8px!important;
-}
-.card::before{height:3px;background:var(--blue);}
-.card-header{background:#FFFFFF!important;padding:.82rem 1rem;}
-.summary-tile,.stage-tile{border-top:3px solid var(--tile,var(--stage))!important;}
-.summary-tile::before,.stage-tile::before{display:none;}
-.note-block{
-  background:#FFFFFF;
-  border:0;
-  border-left:3px solid var(--mint);
-  border-radius:0;
-  padding:9px 12px;
-}
-.nav-tabs .nav-link{box-shadow:none;}
-.btn-primary{box-shadow:none!important;}
-.responsive-plot-mobile{display:none;}
-.responsive-figure img{display:block;width:100%;height:auto;}
-@media (max-width:700px){
-  .page-title{font-size:1.45rem;}
-  .navbar{padding:.68rem .85rem;}
+  .page-title{font-size:1.42rem;}
+  .navbar{padding:.7rem .85rem;}
   .responsive-plot-desktop{display:none;}
   .responsive-plot-mobile{display:flex;}
+  .responsive-figure img{max-height:640px;}
 }
-"""
-
-
-# ── 5. UI ────────────────────────────────────────────────────────────────────
+"""# ── 5. UI ────────────────────────────────────────────────────────────────────
 
 _stage_lbl  = {"1": "I",  "2": "II",  "3": "III",  "4": "IV"}
 _t_lbl      = {"1": "T1", "2": "T2",  "3": "T3",   "4": "T4"}
@@ -1174,45 +1394,48 @@ app_ui = ui.page_sidebar(
 
     ui.tags.style(_CSS),
     ui.tags.div(
-        ui.tags.div("Survival atlas", class_="hero-kicker"),
-        ui.tags.h3(
-            "TCGA-LUAD Survival Forecast Atlas",
-            class_="page-title",
+        ui.tags.div(
+            ui.tags.div("Survival atlas", class_="hero-kicker"),
+            ui.tags.h3(
+                "TCGA-LUAD Survival Forecast Atlas",
+                class_="page-title",
+            ),
+            ui.tags.p(
+                f"Real TCGA-LUAD cohort from the NCI GDC API · N={N_TOTAL} patients · "
+                f"event rate {EV_RATE:.0%} · median follow-up {MED_FU:.0f} months. "
+                f"The app contrasts Cox PH with {DIST['best']} AFT using a fixed train/test split.",
+                class_="page-subtitle",
+            ),
+            class_="hero-copy",
         ),
-        ui.tags.p(
-            f"Real TCGA-LUAD cohort from the NCI GDC API · N={N_TOTAL} patients · "
-            f"event rate {EV_RATE:.0%} · median follow-up {MED_FU:.0f} months. "
-            f"The app contrasts Cox PH with {DIST['best']} AFT using a fixed train/test split.",
-            class_="page-subtitle",
+        ui.tags.div(
+            _summary_tile(
+                "Cohort",
+                f"{N_TOTAL}",
+                f"train {N_TRAIN} / test {N_TEST} patients",
+                "accent-blue",
+            ),
+            _summary_tile(
+                "Event burden",
+                f"{EV_RATE:.0%}",
+                "overall survival event rate in the full cohort",
+                "accent-teal",
+            ),
+            _summary_tile(
+                "Follow-up",
+                f"{MED_FU:.0f} m",
+                "median observed follow-up time",
+                "accent-navy",
+            ),
+            _summary_tile(
+                "Best test C-index",
+                f"{max(RES_COX['c_index'], RES_AFT['c_index']):.3f}",
+                f"{_best_name} on held-out patients",
+                "accent-salmon",
+            ),
+            class_="summary-grid",
         ),
-        class_="hero-copy",
-    ),
-    ui.tags.div(
-        _summary_tile(
-            "Cohort",
-            f"{N_TOTAL}",
-            f"train {N_TRAIN} / test {N_TEST} patients",
-            "accent-blue",
-        ),
-        _summary_tile(
-            "Event burden",
-            f"{EV_RATE:.0%}",
-            "overall survival event rate in the full cohort",
-            "accent-teal",
-        ),
-        _summary_tile(
-            "Follow-up",
-            f"{MED_FU:.0f} m",
-            "median observed follow-up time",
-            "accent-navy",
-        ),
-        _summary_tile(
-            "Best test C-index",
-            f"{max(RES_COX['c_index'], RES_AFT['c_index']):.3f}",
-            f"{_best_name} on held-out patients",
-            "accent-salmon",
-        ),
-        class_="summary-grid",
+        class_="hero-banner",
     ),
 
     ui.navset_tab(
@@ -1224,18 +1447,34 @@ app_ui = ui.page_sidebar(
                 "The first view focuses on one patient at a time: two survival models, key time-point probabilities, and compact interpretation cues.",
             ),
             ui.output_ui("info_bar"),
-            ui.layout_columns(
-                ui.card(
-                    ui.card_header("Predicted Survival Curves"),
-                    ui.tags.div(
-                        ui.output_plot("survival_curve", width="100%", height="100%"),
-                        class_="plot-frame plot-survival",
-                    ),
-                    class_="equal-card",
+            ui.card(
+                ui.card_header("Predicted Survival Curves"),
+                ui.tags.div(
+                    ui.output_plot("survival_curve", width="100%", height="100%"),
+                    class_="plot-frame plot-survival-full",
                 ),
+                class_="equal-card",
+            ),
+            ui.layout_columns(
                 ui.card(
                     ui.card_header("Survival Probability at Key Time Points"),
                     ui.tags.div(ui.output_ui("prob_table"), class_="result-frame result-survival"),
+                    class_="equal-card",
+                ),
+                ui.card(
+                    ui.card_header("Reading the Curves"),
+                    ui.tags.div(
+                        ui.tags.p(
+                            "The solid indigo curve is the Cox PH projection; the "
+                            "dashed pink curve is the "
+                            f"{DIST['best']} AFT projection. The lavender band "
+                            "marks the agreement region between the two models, "
+                            "and the dotted rules mark the 12 / 24 / 36 / 60 "
+                            "month horizons.",
+                            style="font-size:.82rem;line-height:1.6;color:var(--muted);",
+                        ),
+                        class_="result-frame result-survival",
+                    ),
                     class_="equal-card",
                 ),
                 col_widths=[7, 5],
@@ -1282,8 +1521,15 @@ app_ui = ui.page_sidebar(
                         "Marginal Survival Distribution — Training Data"
                     ),
                     ui.tags.div(
-                        ui.output_plot("dist_plot", width="100%", height="100%"),
+                        ui.output_ui("dist_plot"),
                         class_="plot-frame plot-survival",
+                    ),
+                    ui.tags.p(
+                        ui.tags.span("Figure 1", class_="fig-no"),
+                        " · Kaplan-Meier estimate of marginal survival "
+                        "with parametric fits; the AIC-best distribution "
+                        f"({DIST['best']}) is highlighted.",
+                        class_="figure-caption",
                     ),
                     class_="equal-card",
                 ),
@@ -1386,6 +1632,13 @@ app_ui = ui.page_sidebar(
                     ui.output_ui("perf_plot_mobile"),
                     class_="responsive-figure responsive-plot-mobile",
                 ),
+                ui.tags.p(
+                    ui.tags.span("Figure 2", class_="fig-no"),
+                    " · Model comparison on the held-out test set: "
+                    "Harrell's C-index with 95% bootstrap intervals (A) and "
+                    "time-dependent AUC at 12–60 months (B).",
+                    class_="figure-caption",
+                ),
             ),
             ui.tags.div(
                 _note_block(
@@ -1459,16 +1712,19 @@ def server(input, output, session):
             reactive.invalidate_later(3)
             _refresh_tick.set(_refresh_n["c"])
 
-    @render.plot
+    @reactive.calc
+    def _visits():
+        _refresh_tick.get()  # re-fetch when the tick advances
+        return _fetch_visits_sv()
+
+    @render.plot(alt="Global visitor map")
     def visit_map():
-        _refresh_tick.get()  # re-render when the tick advances
-        return _make_visit_map_sv(_user_loc["lat"], _user_loc["lon"])
+        return _make_visit_map_sv(_visits(), _user_loc["lat"], _user_loc["lon"])
 
     @render.ui
     def visit_stats():
         from collections import Counter
-        _refresh_tick.get()  # re-render when the tick advances
-        visits = _fetch_visits_sv()
+        visits = _visits()
         total  = len(visits)
         counts = Counter(
             f"{v.get('city')}, {_country_name(v.get('country'))}" if v.get("country") else v.get("city")
@@ -1547,11 +1803,11 @@ def server(input, output, session):
                                 np.interp(60.0,  _CURVE_T, s_aft)),
         ]:
             chips.append(
-                f'<div class="metric-chip">'
+                f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#EEF2FF;">'
                 f'<span class="mc-label">{label} · Cox PH</span>'
                 f'<span class="mc-value mc-cox">{sc*100:.1f}%</span>'
                 f'</div>'
-                f'<div class="metric-chip">'
+                f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#FDF2F8;">'
                 f'<span class="mc-label">{label} · AFT</span>'
                 f'<span class="mc-value mc-aft">{sa*100:.1f}%</span>'
                 f'</div>'
@@ -1560,12 +1816,12 @@ def server(input, output, session):
 
     # ── Survival curve plot ───────────────────────────────────────────────────
 
-    @render.plot
+    @render.plot(alt="Predicted survival curves for the current patient")
     def survival_curve():
         s_cox, s_aft = curves()
 
-        fig, ax = plt.subplots(figsize=(7.0, 3.5), dpi=300)
-        _cell_ax(fig, ax)
+        fig, ax = plt.subplots(figsize=(10.2, 4.85))
+        _cell_ax(fig, ax, grid=True)
 
         ax.plot(_CURVE_T, s_cox, color=_COX_CLR, lw=1.0, label="Cox PH", zorder=4)
         ax.plot(_CURVE_T, s_aft, color=_AFT_CLR, lw=1.0, ls="--",
@@ -1575,11 +1831,11 @@ def server(input, output, session):
                         alpha=0.10, color=BRAND["mint"], linewidth=0, zorder=1)
 
         for t_ref in _REF_T:
-            ax.axvline(t_ref, color=BRAND["edge"], lw=0.8, ls=":", zorder=0)
+            ax.axvline(t_ref, color=_REF_GRAY, lw=0.8, ls=":", zorder=0)
 
-        ax.axhline(0.5, color=BRAND["edge"], lw=1.0, ls="--", zorder=0)
+        ax.axhline(0.5, color=_REF_GRAY, lw=1.0, ls="--", zorder=0)
         ax.text(71.5, 0.515, "50%", ha="right", va="bottom",
-                fontsize=7.0, color=_MUTED)
+                fontsize=6.5, color=_MUTED)
 
         for t_ann in _REF_T:
             sc = float(np.interp(t_ann, _CURVE_T, s_cox))
@@ -1588,9 +1844,9 @@ def server(input, output, session):
             ax.scatter(t_ann, sa, color=_AFT_CLR, s=16, marker="o", zorder=6)
             if t_ann in (12., 24., 36., 60.):
                 ax.text(t_ann + 0.8, min(sc + 0.035, 1.02), f"{sc*100:.0f}%",
-                        ha="left", va="center", fontsize=6.2, color=_COX_CLR)
+                        ha="left", va="center", fontsize=5.8, color=_COX_CLR)
                 ax.text(t_ann + 0.8, max(sa - 0.035, 0.04), f"{sa*100:.0f}%",
-                        ha="left", va="center", fontsize=6.2, color=_AFT_CLR)
+                        ha="left", va="center", fontsize=5.8, color=_AFT_CLR)
 
         for label, s_arr, clr, y_txt in [
             ("Cox median", s_cox, _COX_CLR, 0.12),
@@ -1601,7 +1857,7 @@ def server(input, output, session):
                 ax.vlines(med_t, 0.0, 0.5, color=clr, lw=0.8,
                           linestyles=":", zorder=2)
                 ax.text(med_t + 1.0, y_txt, f"{label}: {med_t:.0f}m",
-                        ha="left", va="center", fontsize=6.7, color=clr)
+                        ha="left", va="center", fontsize=6.3, color=clr)
 
         ax.set_xlim(0, 72)
         ax.set_ylim(0, 1.06)
@@ -1610,7 +1866,7 @@ def server(input, output, session):
         ax.set_xlabel("Time (months)")
         ax.set_ylabel("Survival probability")
         ax.legend(
-            fontsize=8.0,
+            fontsize=7.5,
             frameon=False,
             loc="lower center",
             bbox_to_anchor=(0.5, 1.01),
@@ -1659,54 +1915,11 @@ def server(input, output, session):
 </p>
 """)
 
-    # ── Distribution fitting plot (static) ────────────────────────────────────
+    # ── Distribution fitting plot (pre-rendered at import) ────────────────────
 
-    @render.plot
+    @render.ui
     def dist_plot():
-        fig, ax = plt.subplots(figsize=(7.0, 3.5), dpi=300)
-        _cell_ax(fig, ax)
-
-        km_t, km_s = _survival_function_frame(KM_TRAIN)
-        t_max = min(240.0, float(np.nanmax(km_t)) if km_t is not None else 240.0)
-        t_grid = np.linspace(0.0, t_max, 260)
-
-        handles = []
-        labels = []
-        if km_t is not None:
-            km_line = ax.step(km_t, km_s, where="post", color=BRAND["ink"],
-                              lw=1.0, label="Kaplan-Meier")[0]
-            ci = getattr(KM_TRAIN, "confidence_interval_", None)
-            if ci is not None and not ci.empty and ci.shape[1] >= 2:
-                ci_t = ci.index.to_numpy(dtype=float)
-                lo = ci.iloc[:, 0].to_numpy(dtype=float)
-                hi = ci.iloc[:, 1].to_numpy(dtype=float)
-                ax.fill_between(ci_t, lo, hi, step="post", color=BRAND["ink"],
-                                alpha=0.08, linewidth=0, zorder=0)
-            handles.append(km_line)
-            labels.append("Kaplan-Meier")
-
-        colors = [BRAND["blue"], _AFT_CLR, BRAND["green"], BRAND["red"]]
-        for (name, fitter), clr in zip(DIST["fitters"].items(), colors):
-            is_best = (name == DIST["best"])
-            sf_vals = _survival_at_times(fitter, t_grid)
-            line = ax.plot(
-                t_grid, sf_vals, color=clr, lw=1.0,
-                ls="-" if is_best else "--",
-                alpha=1.0 if is_best else 0.68,
-                label=f"{name}{' (best)' if is_best else ''}",
-                zorder=3 if is_best else 2,
-            )[0]
-            handles.append(line)
-            labels.append(f"{name}{' (best)' if is_best else ''}")
-
-        ax.set_xlabel("Time (months)")
-        ax.set_ylabel("Survival Probability")
-        ax.set_xlim(0, t_max)
-        ax.set_ylim(0, 1.05)
-        ax.legend(handles, labels, loc="upper right", frameon=False,
-                  fontsize=8.0, handlelength=2.0, borderaxespad=0.4)
-        fig.tight_layout(pad=0.7)
-        return fig
+        return _DIST_IMG
 
     # ── Distribution AIC table ────────────────────────────────────────────────
 
@@ -1737,109 +1950,15 @@ def server(input, output, session):
 </div>
 """)
 
-    # ── Model performance plot (static, 2-panel) ──────────────────────────────
-
-    def _make_perf_plot(is_narrow: bool):
-        if is_narrow:
-            fig = plt.figure(figsize=(3.5, 5.0), dpi=300)
-            gs = fig.add_gridspec(2, 1, hspace=0.70)
-            axs = [fig.add_subplot(gs[i, 0]) for i in range(2)]
-        else:
-            fig = plt.figure(figsize=(7.0, 3.5), dpi=300)
-            gs = fig.add_gridspec(1, 2, wspace=0.42)
-            axs = [fig.add_subplot(gs[0, i]) for i in range(2)]
-
-        for ax in axs:
-            _cell_ax(fig, ax)
-
-        # ── A: C-index forest plot ────────────────────────────────────────────
-        ax = axs[0]
-        names  = ["Cox PH", f"{DIST['best']} AFT"]
-        ci_v   = [RES_COX["c_index"],  RES_AFT["c_index"]]
-        ci_lo  = [RES_COX["ci_lo"],    RES_AFT["ci_lo"]]
-        ci_hi  = [RES_COX["ci_hi"],    RES_AFT["ci_hi"]]
-        colors = [_COX_CLR, _AFT_CLR]
-
-        ax.axvline(0.5, color=BRAND["edge"], lw=0.8, ls="--", zorder=0)
-        for i, (n, c, lo, hi, clr) in enumerate(
-                zip(names, ci_v, ci_lo, ci_hi, colors)):
-            xerr = np.array([[c - lo], [hi - c]])
-            ax.errorbar(c, i, xerr=xerr, fmt="o", color=clr, ecolor=clr,
-                        elinewidth=0.8, capsize=3, markersize=4, zorder=5)
-
-        ax.set_yticks(range(len(names)))
-        ax.set_yticklabels(names, fontsize=8.0)
-        x_min = max(0.45, min(ci_lo) - 0.05)
-        x_max = min(0.92, max(ci_hi) + 0.08)
-        ax.set_xlim(x_min, x_max)
-        for i, (c, hi, clr) in enumerate(zip(ci_v, ci_hi, colors)):
-            x_pos = min(hi + 0.010, x_max - 0.012)
-            ha = "left" if x_pos < x_max - 0.02 else "right"
-            ax.text(x_pos, i, f"{c:.3f}", va="center", ha=ha, fontsize=7.6,
-                    color=clr, fontweight="600")
-        ax.set_xlabel("C-index (95% CI)", labelpad=4)
-        ax.set_title("A. C-index", fontweight="bold", loc="left",
-                     fontsize=10.0, pad=6)
-        ax.tick_params(axis="y", pad=3)
-
-        # ── B: Time-dependent AUC ─────────────────────────────────────────────
-        ax = axs[1]
-        auc_min = 1.0
-        auc_max = 0.5
-        for res, clr, nm in [
-            (RES_COX, _COX_CLR, "Cox"),
-            (RES_AFT, _AFT_CLR, "AFT"),
-        ]:
-            if not any(np.isnan(res["auc_vals"])):
-                auc_vals = np.array(res["auc_vals"], dtype=float)
-                auc_min = min(auc_min, float(np.nanmin(auc_vals)))
-                auc_max = max(auc_max, float(np.nanmax(auc_vals)))
-                ax.plot(res["times"], auc_vals, color=clr, lw=1.1,
-                        marker="o", ms=4,
-                        label=f"{nm} mean={res['mean_auc']:.3f}")
-
-        ax.axhline(0.5, color=_MUTED, lw=0.8, ls="--")
-        ax.set_ylim(max(0.45, auc_min - 0.08), min(1.0, auc_max + 0.10))
-        ax.set_xlabel("Time (months)", labelpad=5)
-        ax.set_ylabel("Dynamic AUC", labelpad=2)
-        ax.set_title("B. Time-dependent AUC", fontweight="bold",
-                     loc="left", fontsize=10.0, pad=6)
-        ax.legend(fontsize=8.0, frameon=False, loc="lower right",
-                  handlelength=2.2, borderaxespad=0.2)
-        if is_narrow:
-            fig.subplots_adjust(
-                left=0.22, right=0.95, top=0.97, bottom=0.09, hspace=0.70,
-            )
-        else:
-            fig.subplots_adjust(
-                left=0.095, right=0.985, top=0.90, bottom=0.18, wspace=0.42,
-            )
-
-        return fig
-
-    def _figure_tag(fig, alt: str):
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
-        plt.close(fig)
-        encoded = base64.b64encode(buf.getvalue()).decode("ascii")
-        return ui.tags.img(
-            src=f"data:image/png;base64,{encoded}",
-            alt=alt,
-        )
+    # ── Model performance plot (pre-rendered at import) ───────────────────────
 
     @render.ui
     def perf_plot_desktop():
-        return _figure_tag(
-            _make_perf_plot(False),
-            "C-index and time-dependent AUC model performance comparison",
-        )
+        return _PERF_DESKTOP_IMG
 
     @render.ui
     def perf_plot_mobile():
-        return _figure_tag(
-            _make_perf_plot(True),
-            "C-index and time-dependent AUC model performance comparison",
-        )
+        return _PERF_MOBILE_IMG
 
     # ── Performance metric chips ──────────────────────────────────────────────
 
@@ -1849,8 +1968,9 @@ def server(input, output, session):
             return f"{v:.{decimals}f}" if isinstance(v, float) and not np.isnan(v) else "—"
 
         def _chip(label, train_v, test_v, clr, decimals=3):
+            _tint = "#EEF2FF" if clr == _COX_CLR else "#FDF2F8"
             return (
-                f'<div class="metric-chip">'
+                f'<div class="metric-chip" style="--tile:{clr};--tint:{_tint};">'
                 f'<span class="mc-label">{label}</span>'
                 f'<span class="mc-value" style="color:{clr};">'
                 f'{_fmt(train_v, decimals)} / {_fmt(test_v, decimals)}</span>'
@@ -1863,7 +1983,7 @@ def server(input, output, session):
                   TR_COX.get("c_index", float("nan")), RES_COX["c_index"], _COX_CLR),
             _chip("Cox PH — IBS",
                   TR_COX.get("ibs", float("nan")), RES_COX["ibs"], _COX_CLR, 4),
-            f'<div class="metric-chip">'
+            f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#EEF2FF;">'
             f'<span class="mc-label">Cox PH — mean AUC</span>'
             f'<span class="mc-value mc-cox">{_fmt(RES_COX["mean_auc"])}</span>'
             f'<span style="font-size:.60rem;color:{_MUTED};">test only</span>'
@@ -1872,7 +1992,7 @@ def server(input, output, session):
                   TR_AFT.get("c_index", float("nan")), RES_AFT["c_index"], _AFT_CLR),
             _chip(f"AFT — IBS",
                   TR_AFT.get("ibs", float("nan")), RES_AFT["ibs"], _AFT_CLR, 4),
-            f'<div class="metric-chip">'
+            f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#FDF2F8;">'
             f'<span class="mc-label">AFT — mean AUC</span>'
             f'<span class="mc-value mc-aft">{_fmt(RES_AFT["mean_auc"])}</span>'
             f'<span style="font-size:.60rem;color:{_MUTED};">test only</span>'

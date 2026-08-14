@@ -9,7 +9,14 @@ from pathlib import Path
 ACCOUNT = "medictio"
 TITLE   = "nsclc-survival"
 DIR     = str(Path(__file__).parent)
-EXCLUDE = ["Dockerfile", "upload.py", "deploy.py"]
+# Files/folders that are only needed for local development, HuggingFace, or
+# documentation — never required by the deployed Shiny runtime.
+EXCLUDE = [
+    "Dockerfile", "upload.py", "deploy.py", "README.md",
+    "generate_readme_figures.py",
+    "__pycache__", ".cache", ".git", "output", ".playwright-cli",
+    "rsconnect-python", "assets",
+]
 
 cmd = (
     ["rsconnect", "deploy", "shiny", DIR, "--name", ACCOUNT, "--title", TITLE]
