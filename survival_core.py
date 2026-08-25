@@ -26,12 +26,13 @@ Simulated data only — NOT a clinical diagnostic tool.
 
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import os
 import platform
 import tempfile
 import warnings
 import time
-from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
@@ -58,11 +59,9 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")  # suppress OMP duplicate-
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
-import scipy
-from scipy import stats
 import sklearn
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedKFold
 import joblib
 
 import lifelines
@@ -97,8 +96,8 @@ except ImportError:
 __version__ = "1.0.0"
 SEED = 42
 CELL_COLORS = [
-    "#E11D48", "#06B6D4", "#10B981", "#4F46E5", "#EC4899",
-    "#94A3B8", "#A78BFA", "#DC2626", "#64748B", "#9333EA",
+    "#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F",
+    "#8491B4", "#91D1C2", "#DC0000", "#7E6148", "#B09C85",
 ]
 
 
@@ -184,16 +183,16 @@ _LOG_HR = dict(
 )
 
 BRAND = dict(
-    red="#E11D48",
-    blue="#06B6D4",
-    green="#10B981",
-    navy="#4F46E5",
-    orange="#EC4899",
-    purple="#A78BFA",
-    mint="#A78BFA",
-    crimson="#DC2626",
-    brown="#64748B",
-    tan="#F59E0B",
+    red=CELL_COLORS[0],
+    blue=CELL_COLORS[1],
+    green=CELL_COLORS[2],
+    navy=CELL_COLORS[3],
+    orange=CELL_COLORS[4],
+    purple=CELL_COLORS[5],
+    mint=CELL_COLORS[6],
+    crimson=CELL_COLORS[7],
+    brown=CELL_COLORS[8],
+    tan=CELL_COLORS[9],
     light="white",
     grid="#EDE9FE",
     edge="#C4B5FD",
@@ -424,12 +423,17 @@ def tune_cox_penalizer(df_train: pd.DataFrame, n_folds: int = 5,
     best_c, best_pen = -1.0, 0.1
     for pen in [0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]:
         scores = []
-        kf = KFold(n_splits=n_folds, shuffle=True, random_state=SEED)
-        for tr_idx, va_idx in kf.split(df_tr):
+        kf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=SEED)
+        for tr_idx, va_idx in kf.split(df_tr, df_train[EVENT_COL].values):
             try:
                 m = CoxPHFitter(penalizer=pen, l1_ratio=0.0)
                 m.fit(df_tr.iloc[tr_idx], duration_col=TIME_COL, event_col=EVENT_COL)
-                scores.append(m.concordance_index_)
+                scores.append(
+                    m.score(
+                        df_tr.iloc[va_idx],
+                        scoring_method="concordance_index",
+                    )
+                )
             except Exception:
                 pass
         if scores and np.mean(scores) > best_c:
