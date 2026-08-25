@@ -9,12 +9,12 @@ Cell Press visual style · Research & educational use only
 from __future__ import annotations
 
 import base64
+import html
 import io
 import json
 import os
 import tempfile
 import threading
-import time
 import warnings
 from pathlib import Path
 
@@ -25,7 +25,6 @@ import numpy as np
 import pandas as pd
 import requests
 from lifelines import KaplanMeierFitter
-from lifelines.statistics import multivariate_logrank_test as _mlr
 from shiny import App, reactive, render, ui
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
@@ -233,7 +232,6 @@ def _sanitized_bundle(raw: dict) -> tuple[dict, bool]:
         return raw, False
 
     df_train = raw.get("df_train")
-    df_test = raw.get("df_test")
     df_all = raw.get("df_all")
     y_train = raw["y_train"]
     y_test = raw["y_test"]
@@ -415,14 +413,8 @@ print("  Ready.", flush=True)
 # Runtime integrations are optional. The app remains functional when these
 # variables are absent, with visit logging and geo-enrichment disabled.
 _IPINFO_TOKEN = os.environ.get("IPINFO_TOKEN", "").strip()
-_SUPABASE_URL = os.environ.get(
-    "SUPABASE_URL", "https://vmivonjwubhbvlufxkdd.supabase.co"
-).strip()
-# Supabase anon keys are public client credentials; table access is governed by RLS.
-_SUPABASE_KEY = os.environ.get(
-    "SUPABASE_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtaXZvbmp3dWJoYnZsdWZ4a2RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwODMyMDQsImV4cCI6MjA5ODY1OTIwNH0.IHH8dPFWYCkZ7eFhIx5zHY0QGMi1_pDM1ebBfzoHha0",
-).strip()
+_SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+_SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
 _ANALYTICS_CONFIGURED = bool(
     _SUPABASE_URL and _SUPABASE_KEY
 )
@@ -752,7 +744,7 @@ def _figure_tag(fig, alt: str):
 def _make_dist_fig():
     """Marginal survival distribution: KM + parametric candidates."""
     fig, ax = plt.subplots(figsize=(6.6, 3.15))
-    _cell_ax(fig, ax, grid=True)
+    _cell_ax(fig, ax)
 
     km_t, km_s = _survival_function_frame(KM_TRAIN)
     t_max = min(240.0, float(np.nanmax(km_t)) if km_t is not None else 240.0)
@@ -807,9 +799,9 @@ def _make_perf_plot(is_narrow: bool):
         gs = fig.add_gridspec(1, 2, wspace=0.42)
         axs = [fig.add_subplot(gs[0, i]) for i in range(2)]
 
-    # Light gridlines only behind the AUC panel (B); the forest plot stays clean.
+    # Keep both panels free of gridlines.
     _cell_ax(fig, axs[0])
-    _cell_ax(fig, axs[1], grid=True)
+    _cell_ax(fig, axs[1])
 
     # ── A: C-index forest plot ────────────────────────────────────────────
     ax = axs[0]
@@ -1552,9 +1544,9 @@ app_ui = ui.page_sidebar(
                                 style="font-size:.70rem;line-height:1.48;color:var(--ct);",
                             ),
                             ui.tags.p(
-                                f"Best fit: ",
+                                "Best fit: ",
                                 ui.tags.strong(DIST["best"]),
-                                f" — selected as the AFT family for the parametric model. "
+                                " — selected as the AFT family for the parametric model. "
                                 "Unlike Cox PH, this parametric form supports analytical "
                                 "extrapolation beyond the 72-month follow-up window.",
                                 style="font-size:.70rem;line-height:1.48;color:var(--ct);",
@@ -1691,6 +1683,8 @@ def server(input, output, session):
         _ip = ""
 
     def _do_log(ip: str) -> None:
+        if not _ANALYTICS_CONFIGURED:
+            return
         country, city, lat, lon = _lookup_ip_location(ip)
         if lat is not None and lon is not None:
             _user_loc["lat"] = lat
@@ -1732,7 +1726,7 @@ def server(input, output, session):
         )
         top    = counts.most_common(10)
         rows   = "".join(
-            f"<tr><td style='font-size:.70rem;'>{i+1}. {c}</td>"
+            f"<tr><td style='font-size:.70rem;'>{i+1}. {html.escape(str(c))}</td>"
             f"<td class='num' style='font-size:.70rem;'>{n}</td></tr>"
             for i, (c, n) in enumerate(top)
         )
@@ -1794,7 +1788,7 @@ def server(input, output, session):
     def info_bar():
         s_cox, s_aft = curves()
         chips = []
-        for label, t, sc, sa in [
+        for label, t, s_cox_value, s_aft_value in [
             ("1-yr OS", 12.0,  np.interp(12.0,  _CURVE_T, s_cox),
                                 np.interp(12.0,  _CURVE_T, s_aft)),
             ("3-yr OS", 36.0,  np.interp(36.0,  _CURVE_T, s_cox),
@@ -1805,11 +1799,11 @@ def server(input, output, session):
             chips.append(
                 f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#EEF2FF;">'
                 f'<span class="mc-label">{label} · Cox PH</span>'
-                f'<span class="mc-value mc-cox">{sc*100:.1f}%</span>'
+                f'<span class="mc-value mc-cox">{s_cox_value*100:.1f}%</span>'
                 f'</div>'
                 f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#FDF2F8;">'
                 f'<span class="mc-label">{label} · AFT</span>'
-                f'<span class="mc-value mc-aft">{sa*100:.1f}%</span>'
+                f'<span class="mc-value mc-aft">{s_aft_value*100:.1f}%</span>'
                 f'</div>'
             )
         return ui.HTML('<div class="infobar">' + "".join(chips) + "</div>")
@@ -1821,7 +1815,7 @@ def server(input, output, session):
         s_cox, s_aft = curves()
 
         fig, ax = plt.subplots(figsize=(10.2, 4.85))
-        _cell_ax(fig, ax, grid=True)
+        _cell_ax(fig, ax)
 
         ax.plot(_CURVE_T, s_cox, color=_COX_CLR, lw=1.0, label="Cox PH", zorder=4)
         ax.plot(_CURVE_T, s_aft, color=_AFT_CLR, lw=1.0, ls="--",
@@ -1988,9 +1982,9 @@ def server(input, output, session):
             f'<span class="mc-value mc-cox">{_fmt(RES_COX["mean_auc"])}</span>'
             f'<span style="font-size:.60rem;color:{_MUTED};">test only</span>'
             f'</div>',
-            _chip(f"AFT — C-index",
+            _chip("AFT — C-index",
                   TR_AFT.get("c_index", float("nan")), RES_AFT["c_index"], _AFT_CLR),
-            _chip(f"AFT — IBS",
+            _chip("AFT — IBS",
                   TR_AFT.get("ibs", float("nan")), RES_AFT["ibs"], _AFT_CLR, 4),
             f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#FDF2F8;">'
             f'<span class="mc-label">AFT — mean AUC</span>'

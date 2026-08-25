@@ -168,6 +168,16 @@ For another hosting workflow, package at least:
 
 Do not replace the deployment bundle with raw patient-level feature tables.
 
+## Optional visitor analytics
+
+The dashboard can optionally render aggregate visit statistics through Supabase and locate public IP addresses through IPinfo or the `ipwho.is` fallback. Analytics are disabled unless both `SUPABASE_URL` and `SUPABASE_KEY` are configured. When enabled, hosted visitors should be informed that country, city, latitude, and longitude may be recorded. Prediction inputs are not stored.
+
+| Environment variable | Purpose |
+|---|---|
+| `IPINFO_TOKEN` | Optional authenticated IPinfo lookup |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_KEY` | Supabase client key; restrict access with row-level security |
+
 ## Repository layout
 
 ```text
