@@ -15,6 +15,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import warnings
 from pathlib import Path
 
@@ -418,8 +419,16 @@ _SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
 _ANALYTICS_CONFIGURED = bool(
     _SUPABASE_URL and _SUPABASE_KEY
 )
-_ANALYTICS_STATE = {"error": None}
+_ANALYTICS_STATE = {
+    "error": None,
+    "mode": "remote" if _ANALYTICS_CONFIGURED else "local",
+    "retry_at": 0.0,
+}
 _APP_NAME_SV  = "nsclc-survival"
+_ANALYTICS_RETRY_SECONDS = 60.0
+_LOCAL_VISITS_LIMIT_SV = 500
+_LOCAL_VISITS_SV: list[dict] = []
+_LOCAL_VISITS_LOCK_SV = threading.Lock()
 
 _COUNTRY_NAMES = {
     "AF":"Afghanistan","AL":"Albania","DZ":"Algeria","AR":"Argentina",
@@ -493,6 +502,56 @@ _HTTP_SESSION_SV = requests.Session()
 _HTTP_SESSION_SV.headers.update({"User-Agent": _APP_NAME_SV})
 
 
+def _map_coordinate_sv(value, lower, upper):
+    """Return a finite coordinate inside the requested range."""
+    try:
+        coordinate = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(coordinate) or not lower <= coordinate <= upper:
+        return None
+    return coordinate
+
+
+def _normalise_visit_sv(visit):
+    if not isinstance(visit, dict):
+        return None
+    lat = _map_coordinate_sv(visit.get("lat"), -90.0, 90.0)
+    lon = _map_coordinate_sv(visit.get("lon"), -180.0, 180.0)
+    if lat is None or lon is None:
+        return None
+    return {
+        "country": str(visit.get("country") or "").strip(),
+        "city": str(visit.get("city") or "").strip(),
+        "lat": lat,
+        "lon": lon,
+    }
+
+
+def _normalise_visits_sv(visits):
+    normalised = (_normalise_visit_sv(visit) for visit in (visits or []))
+    return [visit for visit in normalised if visit is not None]
+
+
+def _record_local_visit_sv(country, city, lat, lon):
+    visit = _normalise_visit_sv({
+        "country": country,
+        "city": city,
+        "lat": lat,
+        "lon": lon,
+    })
+    if visit is None:
+        return
+    with _LOCAL_VISITS_LOCK_SV:
+        _LOCAL_VISITS_SV.append(visit)
+        del _LOCAL_VISITS_SV[:-_LOCAL_VISITS_LIMIT_SV]
+
+
+def _local_visits_sv():
+    with _LOCAL_VISITS_LOCK_SV:
+        return [dict(visit) for visit in _LOCAL_VISITS_SV]
+
+
 def _log_visit_sv(country, city, lat, lon):
     if not (_SUPABASE_URL and _SUPABASE_KEY):
         return
@@ -510,25 +569,13 @@ def _log_visit_sv(country, city, lat, lon):
         pass
 
 
-def _delete_null_visits_sv():
-    if not (_SUPABASE_URL and _SUPABASE_KEY):
-        return
-    try:
-        hdrs = {k: v for k, v in _sb_headers_sv().items() if k != "Prefer"}
-        _HTTP_SESSION_SV.delete(
-            f"{_SUPABASE_URL}/rest/v1/visits",
-            headers=hdrs,
-            params={"app_name": f"eq.{_APP_NAME_SV}", "lat": "is.null"},
-            timeout=5,
-        )
-    except Exception:
-        pass
-
-
 def _fetch_visits_sv():
     if not (_SUPABASE_URL and _SUPABASE_KEY):
         _ANALYTICS_STATE["error"] = "configuration"
-        return []
+        _ANALYTICS_STATE["mode"] = "local"
+        return _local_visits_sv()
+    if time.monotonic() < _ANALYTICS_STATE["retry_at"]:
+        return _local_visits_sv()
     try:
         hdrs = {k: v for k, v in _sb_headers_sv().items() if k != "Prefer"}
         r = _HTTP_SESSION_SV.get(
@@ -541,12 +588,22 @@ def _fetch_visits_sv():
         if r.status_code == 200:
             data = r.json()
             _ANALYTICS_STATE["error"] = None
-            return data if isinstance(data, list) else []
+            _ANALYTICS_STATE["mode"] = "remote"
+            _ANALYTICS_STATE["retry_at"] = 0.0
+            return _normalise_visits_sv(data if isinstance(data, list) else [])
         _ANALYTICS_STATE["error"] = f"http-{r.status_code}"
-        return []
+        _ANALYTICS_STATE["mode"] = "local"
+        _ANALYTICS_STATE["retry_at"] = (
+            time.monotonic() + _ANALYTICS_RETRY_SECONDS
+        )
+        return _local_visits_sv()
     except Exception:
         _ANALYTICS_STATE["error"] = "connection"
-        return []
+        _ANALYTICS_STATE["mode"] = "local"
+        _ANALYTICS_STATE["retry_at"] = (
+            time.monotonic() + _ANALYTICS_RETRY_SECONDS
+        )
+        return _local_visits_sv()
 
 
 _WORLD_GEO_PATH_SV = Path(__file__).parent / "world.geojson"
@@ -590,30 +647,25 @@ def _world_patches_sv():
     return patches
 
 
-threading.Thread(target=_delete_null_visits_sv, daemon=True).start()
-
-
-def _make_visit_map_sv(visits, user_lat=None, user_lon=None):
-    from collections import Counter
+def _make_visit_map_sv(visits, user_lat=None, user_lon=None,
+                       analytics_mode="remote"):
     from matplotlib.collections import PatchCollection
 
-    valid  = [v for v in visits if v.get("lat") is not None and v.get("lon") is not None]
-    lats = [v["lat"] for v in valid]
-    lons = [v["lon"] for v in valid]
-
-    city_counts = Counter(
-        (v.get("city") or "").strip()
-        for v in valid
-        if (v.get("city") or "").strip()
+    valid = _normalise_visits_sv(visits)
+    point_groups = {}
+    for visit in valid:
+        key = (
+            visit["city"], visit["country"],
+            round(visit["lat"], 2), round(visit["lon"], 2),
+        )
+        point_groups[key] = point_groups.get(key, 0) + 1
+    points = sorted(
+        ((*key, count) for key, count in point_groups.items()),
+        key=lambda item: (-item[4], item[0], item[1]),
     )
-    label_names = {city for city, _ in city_counts.most_common(4)}
-    seen_cities: set[str] = set()
-    city_labels = []
-    for v in valid:
-        city = (v.get("city") or "").strip()
-        if city and city in label_names and city not in seen_cities:
-            seen_cities.add(city)
-            city_labels.append((v["lat"], v["lon"], city))
+
+    user_lat = _map_coordinate_sv(user_lat, -90.0, 90.0)
+    user_lon = _map_coordinate_sv(user_lon, -180.0, 180.0)
 
     fig, ax = plt.subplots(figsize=(6.6, 3.15), facecolor="white")
     ax.set_facecolor("white")
@@ -629,11 +681,16 @@ def _make_visit_map_sv(visits, user_lat=None, user_lon=None):
         )
         ax.add_collection(pc)
 
-    if lons:
-        ax.scatter(lons, lats, s=28, color=BRAND["blue"], alpha=0.8,
+    if points:
+        lons = [point[3] for point in points]
+        lats = [point[2] for point in points]
+        sizes = [min(80.0, 22.0 + 12.0 * np.sqrt(point[4]))
+                 for point in points]
+        ax.scatter(lons, lats, s=sizes, color=BRAND["blue"], alpha=0.85,
                    marker="o", zorder=3, linewidths=0,
-                   label=f"Visitors (n={len(lons)})")
-        for i, (lat_c, lon_c, name) in enumerate(city_labels):
+                   label=f"Visitors (n={len(valid)})")
+        labelled_points = [point for point in points if point[0]][:4]
+        for i, (name, _country, lat_c, lon_c, count) in enumerate(labelled_points):
             if lon_c < -100:
                 dx = 5
             elif lon_c > 105:
@@ -641,7 +698,8 @@ def _make_visit_map_sv(visits, user_lat=None, user_lon=None):
             else:
                 dx = 5 if i % 2 == 0 else -4
             dy = 4 if i % 3 == 0 else (-7 if i % 3 == 1 else 9)
-            ax.annotate(name, xy=(lon_c, lat_c),
+            label = f"{name} ({count})" if count > 1 else name
+            ax.annotate(label, xy=(lon_c, lat_c),
                         xytext=(dx, dy), textcoords="offset points",
                         ha="left" if dx >= 0 else "right",
                         fontsize=7.0, color=BRAND["ink"], zorder=5, clip_on=False)
@@ -650,10 +708,21 @@ def _make_visit_map_sv(visits, user_lat=None, user_lon=None):
         ax.scatter([user_lon], [user_lat], s=32, color=BRAND["red"],
                    marker="o", zorder=4, linewidths=0, label="You")
 
+    if not points and user_lat is None:
+        empty_label = (
+            "Waiting for a live visitor"
+            if analytics_mode == "local" else "No mapped visits yet"
+        )
+        ax.text(
+            0.5, 0.055, empty_label,
+            transform=ax.transAxes, ha="center", va="bottom",
+            fontsize=7.5, color=_MUTED, zorder=5,
+        )
+
     ax.set_xticks([])
     ax.set_yticks([])
 
-    if lons or user_lat is not None:
+    if points or user_lat is not None:
         ax.legend(fontsize=7.5, loc="lower left", frameon=False)
 
     fig.tight_layout(pad=0.6)
@@ -909,7 +978,7 @@ html,body{
 }
 /* Masthead — Cell navy clinical theme. */
 .navbar{
-  background:linear-gradient(90deg,#3C5488,#4DBBD5 62%,#00A087)!important;
+  background:#3C5488!important;
   border-bottom:none!important;
   box-shadow:0 4px 14px rgba(109,40,217,.25)!important;
   padding:.9rem 1.5rem;
@@ -1215,9 +1284,9 @@ html,body{
 .result-frame{display:flex;flex-direction:column;justify-content:flex-start;}
 .result-frame.result-map{min-height:clamp(240px,28vw,340px);}
 .result-frame.result-survival,.result-frame.result-dist{min-height:clamp(240px,20vw,340px);}
-/* Rich colour layer */
+/* Solid Cell colour layer */
 .hero-banner{
-  background:linear-gradient(120deg,#3C5488,#4DBBD5 50%,#00A087);
+  background:#3C5488;
   border-radius:12px;
   padding:22px 24px 16px;
   margin-bottom:18px;
@@ -1282,7 +1351,7 @@ html,body{
   --accent-tint:#F7F9FC;--accent-soft:#EEF2F7;--accent-line:#D7DFEA;
 }
 .navbar{
-  background:linear-gradient(90deg,#3C5488,#4DBBD5 62%,#00A087)!important;
+  background:#3C5488!important;
   box-shadow:0 4px 14px rgba(60,84,136,.24)!important;
 }
 .bslib-sidebar-layout>.sidebar{background:var(--accent-tint)!important;}
@@ -1317,7 +1386,7 @@ html,body{
 .prob-tbl tr:hover td,.mtbl tr:hover td,.mtbl tr.best td{background:var(--accent-tint);}
 .figure-caption,.disclaimer{border-top-color:var(--accent-line);}
 .hero-banner{
-  background:linear-gradient(120deg,#3C5488,#4DBBD5 50%,#00A087)!important;
+  background:#3C5488!important;
 }
 .hero-banner .hero-kicker,
 .hero-banner .page-title,
@@ -1738,7 +1807,9 @@ app_ui = ui.page_sidebar(
 def server(input, output, session):
 
     # ── Visit logging ─────────────────────────────────────────────────────────
-    _user_loc = {"lat": None, "lon": None}
+    _user_loc = {
+        "country": "", "city": "", "lat": None, "lon": None,
+    }
     try:
         _hdrs = session.http_conn.headers
         _ip = (
@@ -1749,12 +1820,13 @@ def server(input, output, session):
         _ip = ""
 
     def _do_log(ip: str) -> None:
-        if not _ANALYTICS_CONFIGURED:
-            return
         country, city, lat, lon = _lookup_ip_location(ip)
-        if lat is not None and lon is not None:
-            _user_loc["lat"] = lat
-            _user_loc["lon"] = lon
+        visit = _normalise_visit_sv({
+            "country": country, "city": city, "lat": lat, "lon": lon,
+        })
+        if visit is not None:
+            _user_loc.update(visit)
+            _record_local_visit_sv(**visit)
         _log_visit_sv(country, city, lat, lon)
 
     threading.Thread(target=_do_log, args=(_ip,), daemon=True).start()
@@ -1779,12 +1851,15 @@ def server(input, output, session):
 
     @render.plot(alt="Global visitor map")
     def visit_map():
-        return _make_visit_map_sv(_visits(), _user_loc["lat"], _user_loc["lon"])
+        return _make_visit_map_sv(
+            _visits(), _user_loc["lat"], _user_loc["lon"],
+            _ANALYTICS_STATE["mode"],
+        )
 
     @render.ui
     def visit_stats():
         from collections import Counter
-        visits = _visits()
+        visits = _normalise_visits_sv(_visits())
         total  = len(visits)
         counts = Counter(
             f"{v.get('city')}, {_country_name(v.get('country'))}" if v.get("country") else v.get("city")
@@ -1797,15 +1872,21 @@ def server(input, output, session):
             for i, (c, n) in enumerate(top)
         )
         empty_message = (
-            "Visit analytics are temporarily unavailable."
-            if _ANALYTICS_STATE["error"]
-            else "No visits recorded yet."
+            "Waiting for the first mappable visitor."
+            if not total else "No city labels are available yet."
         )
         empty = (
             f'<p style="font-size:.64rem;color:{_MUTED};padding:8px 0;">'
             f"{empty_message}</p>"
             if not top else ""
         )
+        scope_note = ""
+        if _ANALYTICS_STATE["mode"] == "local":
+            scope_note = (
+                f'<p style="font-size:.61rem;color:{_MUTED};margin:8px 0 0;'
+                'line-height:1.35;">Live locations for this running app '
+                'instance. Persistent history is currently unavailable.</p>'
+            )
         return ui.HTML(f"""
 <div style="padding:4px 6px;">
   <div style="text-align:center;margin-bottom:12px;">
@@ -1821,6 +1902,7 @@ def server(input, output, session):
     <tbody>{rows}</tbody>
   </table>
   {empty}
+  {scope_note}
 </div>
 """)
 
