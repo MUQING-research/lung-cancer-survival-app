@@ -75,14 +75,14 @@ sc.apply_cell_matplotlib_style(**{
 })
 
 _COX_CLR = BRAND["navy"]
-_AFT_CLR = BRAND["orange"]
+_AFT_CLR = BRAND["green"]
 _MUTED   = BRAND["brown"]
 _INK_SV  = "#111111"     # reference rules / misc ink
 _AXIS_SV = "#334155"     # axis spines
 _TICK_SV = "#475569"     # tick marks / tick labels
 _LABEL_SV = "#1E293B"    # axis labels
-_GRID_SV = "#EDE9FE"     # subtle lavender gridlines
-_PANEL_SV = "#7C3AED"    # violet panel titles
+_GRID_SV = "#E2E8F0"     # neutral reference grid colour
+_PANEL_SV = BRAND["navy"]  # navy panel titles
 _REF_GRAY = "#999999"    # light reference rules inside figures
 
 # ── 1. GDC download & preprocessing ──────────────────────────────────────────
@@ -889,11 +889,11 @@ print("  Static figures rendered.", flush=True)
 _CSS = """
 
 :root{
-  --red:#E11D48;--blue:#06B6D4;--teal:#A855F7;--navy:#7C3AED;--salmon:#EC4899;
-  --lav:#A78BFA;--mint:#A78BFA;--crimson:#DC2626;--brown:#64748B;--tan:#F59E0B;
+  --red:#E64B35;--blue:#4DBBD5;--teal:#00A087;--navy:#3C5488;--salmon:#F39B7F;
+  --lav:#8491B4;--mint:#91D1C2;--crimson:#DC0000;--brown:#7E6148;--tan:#B09C85;
   --ink:#1E293B;--muted:#64748B;--surface:#FFFFFF;--white:#FFFFFF;--bg:#FFFFFF;
   --line:#E2E8F0;--line-strong:#CBD5E1;
-  --accent:#7C3AED;--accent-dark:#6D28D9;
+  --accent:#3C5488;--accent-dark:#3C5488;
   --r:8px;--r-sm:6px;
   --font:'Arial','Helvetica Neue',Helvetica,'Liberation Sans','DejaVu Sans',sans-serif;
   --serif:'Arial','Helvetica Neue',Helvetica,'Liberation Sans',sans-serif;
@@ -907,9 +907,9 @@ html,body{
   color:var(--ink);
   -webkit-font-smoothing:antialiased;
 }
-/* Masthead — journal style: white bar, hairline, purple rule */
+/* Masthead — Cell navy clinical theme. */
 .navbar{
-  background:linear-gradient(90deg,#6D28D9,#7C3AED 60%,#9333EA)!important;
+  background:linear-gradient(90deg,#3C5488,#4DBBD5 62%,#00A087)!important;
   border-bottom:none!important;
   box-shadow:0 4px 14px rgba(109,40,217,.25)!important;
   padding:.9rem 1.5rem;
@@ -979,7 +979,7 @@ html,body{
   border:1px solid var(--line-strong)!important;
   border-radius:var(--r-sm)!important;
   box-shadow:none!important;
-  background:linear-gradient(90deg,#6D28D9,#7C3AED 60%,#9333EA)!important;
+  background:var(--surface)!important;
   min-height:2.95rem;
   padding:.62rem .8rem;
   font-size:.86rem;
@@ -1217,7 +1217,7 @@ html,body{
 .result-frame.result-survival,.result-frame.result-dist{min-height:clamp(240px,20vw,340px);}
 /* Rich colour layer */
 .hero-banner{
-  background:linear-gradient(120deg,#6D28D9,#7C3AED 45%,#9333EA);
+  background:linear-gradient(120deg,#3C5488,#4DBBD5 50%,#00A087);
   border-radius:12px;
   padding:22px 24px 16px;
   margin-bottom:18px;
@@ -1273,6 +1273,72 @@ html,body{
 .tab-content{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
 .tab-pane.active{flex:1 1 auto;min-height:0;display:flex!important;flex-direction:column;gap:0;}
 .tab-pane.active>*{flex-shrink:0;}
+
+/* Cell journal palette reset: lung cancer uses navy as the primary accent. */
+:root{
+  --red:#E64B35;--blue:#4DBBD5;--teal:#00A087;--navy:#3C5488;--salmon:#F39B7F;
+  --lav:#8491B4;--mint:#91D1C2;--crimson:#DC0000;--brown:#7E6148;--tan:#B09C85;
+  --accent:#3C5488;--accent-dark:#3C5488;--heading:#3C5488;
+  --accent-tint:#F7F9FC;--accent-soft:#EEF2F7;--accent-line:#D7DFEA;
+}
+.navbar{
+  background:linear-gradient(90deg,#3C5488,#4DBBD5 62%,#00A087)!important;
+  box-shadow:0 4px 14px rgba(60,84,136,.24)!important;
+}
+.bslib-sidebar-layout>.sidebar{background:var(--accent-tint)!important;}
+.sec,.form-label,.page-title,.card-header,.mc-label,.summary-label,
+.stage-kicker,.section-title,.note-title,.prob-tbl th,.mtbl th,
+.methods h4{color:var(--heading)!important;}
+.form-control:focus,.form-select:focus,
+.selectize-control.single .selectize-input.focus{
+  box-shadow:0 0 0 3px rgba(60,84,136,.16)!important;
+}
+.selectize-control.single .selectize-input{
+  background:var(--surface)!important;
+  color:var(--ink)!important;
+}
+.selectize-control .selectize-input .item{color:var(--heading)!important;}
+.btn-primary:hover{filter:brightness(.88);}
+.card{border-color:var(--accent-line)!important;}
+.card-header{
+  background:var(--accent-tint)!important;
+  border-bottom-color:var(--accent-line)!important;
+}
+.metric-chip,.summary-tile,.stage-tile,.responsive-figure img{
+  border-color:var(--accent-line);
+}
+.nav-tabs{
+  border-bottom-color:var(--accent-line)!important;
+  background:var(--accent-tint)!important;
+}
+.nav-tabs .nav-link{color:var(--heading)!important;}
+.nav-tabs .nav-link:hover{background:var(--accent-soft)!important;}
+.prob-tbl th,.mtbl th{background:var(--accent-tint);}
+.prob-tbl tr:hover td,.mtbl tr:hover td,.mtbl tr.best td{background:var(--accent-tint);}
+.figure-caption,.disclaimer{border-top-color:var(--accent-line);}
+.hero-banner{
+  background:linear-gradient(120deg,#3C5488,#4DBBD5 50%,#00A087)!important;
+}
+.hero-banner .hero-kicker,
+.hero-banner .page-title,
+.hero-banner .summary-label{color:#FFFFFF!important;}
+.hero-banner .summary-detail{color:rgba(255,255,255,.84)!important;}
+.hero-banner .page-title::after{background:#F39B7F;}
+.hero-banner .summary-tile{border-top-color:#F39B7F!important;}
+.chip,.metric-chip,.summary-tile{background:var(--tint,var(--accent-soft));}
+.stage-tile{background:var(--stint,var(--accent-soft));}
+.mc-cox,.prob-tbl td.cox{color:#3C5488!important;}
+.mc-aft,.prob-tbl td.aft{color:#00A087!important;}
+.summary-tile.accent-blue{--tile:#4DBBD5;--tint:#EFF8FA;--tile-ink:#3C5488;}
+.summary-tile.accent-teal{--tile:#00A087;--tint:#EFF9F7;--tile-ink:#00A087;}
+.summary-tile.accent-navy{--tile:#3C5488;--tint:#F1F3F7;--tile-ink:#3C5488;}
+.summary-tile.accent-salmon{--tile:#F39B7F;--tint:#FFF4F0;--tile-ink:#E64B35;}
+.summary-tile.accent-crimson{--tile:#DC0000;--tint:#FFF1F0;--tile-ink:#DC0000;}
+.stage-1{--stage:#4DBBD5;--stint:#EFF8FA;--stage-ink:#3C5488;}
+.stage-2{--stage:#3C5488;--stint:#F1F3F7;--stage-ink:#3C5488;}
+.stage-3{--stage:#00A087;--stint:#EFF9F7;--stage-ink:#00A087;}
+.stage-4{--stage:#F39B7F;--stint:#FFF4F0;--stage-ink:#E64B35;}
+.fig-no{color:var(--accent);}
 @media (max-width: 1100px){
   .summary-grid,.stage-grid,.note-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
@@ -1457,9 +1523,9 @@ app_ui = ui.page_sidebar(
                     ui.card_header("Reading the Curves"),
                     ui.tags.div(
                         ui.tags.p(
-                            "The solid indigo curve is the Cox PH projection; the "
-                            "dashed pink curve is the "
-                            f"{DIST['best']} AFT projection. The lavender band "
+                            "The solid navy curve is the Cox PH projection; the "
+                            "dashed teal curve is the "
+                            f"{DIST['best']} AFT projection. The pale blue-teal band "
                             "marks the agreement region between the two models, "
                             "and the dotted rules mark the 12 / 24 / 36 / 60 "
                             "month horizons.",
@@ -1797,11 +1863,11 @@ def server(input, output, session):
                                 np.interp(60.0,  _CURVE_T, s_aft)),
         ]:
             chips.append(
-                f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#EEF2FF;">'
+                f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#F1F3F7;">'
                 f'<span class="mc-label">{label} · Cox PH</span>'
                 f'<span class="mc-value mc-cox">{s_cox_value*100:.1f}%</span>'
                 f'</div>'
-                f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#FDF2F8;">'
+                f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#EFF9F7;">'
                 f'<span class="mc-label">{label} · AFT</span>'
                 f'<span class="mc-value mc-aft">{s_aft_value*100:.1f}%</span>'
                 f'</div>'
@@ -1962,7 +2028,7 @@ def server(input, output, session):
             return f"{v:.{decimals}f}" if isinstance(v, float) and not np.isnan(v) else "—"
 
         def _chip(label, train_v, test_v, clr, decimals=3):
-            _tint = "#EEF2FF" if clr == _COX_CLR else "#FDF2F8"
+            _tint = "#F1F3F7" if clr == _COX_CLR else "#EFF9F7"
             return (
                 f'<div class="metric-chip" style="--tile:{clr};--tint:{_tint};">'
                 f'<span class="mc-label">{label}</span>'
@@ -1977,7 +2043,7 @@ def server(input, output, session):
                   TR_COX.get("c_index", float("nan")), RES_COX["c_index"], _COX_CLR),
             _chip("Cox PH — IBS",
                   TR_COX.get("ibs", float("nan")), RES_COX["ibs"], _COX_CLR, 4),
-            f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#EEF2FF;">'
+            f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#F1F3F7;">'
             f'<span class="mc-label">Cox PH — mean AUC</span>'
             f'<span class="mc-value mc-cox">{_fmt(RES_COX["mean_auc"])}</span>'
             f'<span style="font-size:.60rem;color:{_MUTED};">test only</span>'
@@ -1986,7 +2052,7 @@ def server(input, output, session):
                   TR_AFT.get("c_index", float("nan")), RES_AFT["c_index"], _AFT_CLR),
             _chip("AFT — IBS",
                   TR_AFT.get("ibs", float("nan")), RES_AFT["ibs"], _AFT_CLR, 4),
-            f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#FDF2F8;">'
+            f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#EFF9F7;">'
             f'<span class="mc-label">AFT — mean AUC</span>'
             f'<span class="mc-value mc-aft">{_fmt(RES_AFT["mean_auc"])}</span>'
             f'<span style="font-size:.60rem;color:{_MUTED};">test only</span>'

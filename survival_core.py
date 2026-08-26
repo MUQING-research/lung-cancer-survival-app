@@ -188,20 +188,20 @@ BRAND = dict(
     green=CELL_COLORS[2],
     navy=CELL_COLORS[3],
     orange=CELL_COLORS[4],
-    purple=CELL_COLORS[5],
+    lavender=CELL_COLORS[5],
     mint=CELL_COLORS[6],
     crimson=CELL_COLORS[7],
     brown=CELL_COLORS[8],
     tan=CELL_COLORS[9],
     light="white",
-    grid="#EDE9FE",
-    edge="#C4B5FD",
-    ink="#334155",
+    grid="#E2E8F0",
+    edge=CELL_COLORS[5],
+    ink=CELL_COLORS[3],
 )
 
 MODEL_COLORS = {
     "Cox PH":    BRAND["navy"],
-    "AFT":       BRAND["blue"],
+    "AFT":       BRAND["green"],
     "RSF":       BRAND["orange"],
     "DeepSurv":  BRAND["red"],
 }
