@@ -7,8 +7,9 @@ from pathlib import Path
 from huggingface_hub import HfApi
 
 REPO_ID = "muqing-research/nsclc-survival"
-FILES   = ["survival_app.py", "survival_core.py", "app.py", "requirements.txt",
-           "Dockerfile", "world.geojson", "tcga_luad_app_bundle.pkl"]
+FILES   = ["survival_app.py", "survival_core.py", "theme.css", "app.py",
+           "requirements.txt", "Dockerfile", "world.geojson",
+           "tcga_luad_app_bundle.pkl"]
 
 msg = sys.argv[1] if len(sys.argv) > 1 else "Update"
 api = HfApi()

@@ -1437,6 +1437,10 @@ html,body{
 }
 """# ── 5. UI ────────────────────────────────────────────────────────────────────
 
+# Keep the active interface theme in one deployable stylesheet.
+_CSS = (Path(__file__).parent / "theme.css").read_text(encoding="utf-8")
+
+
 _stage_lbl  = {"1": "I",  "2": "II",  "3": "III",  "4": "IV"}
 _t_lbl      = {"1": "T1", "2": "T2",  "3": "T3",   "4": "T4"}
 _n_lbl      = {"0": "N0", "1": "N1",  "2": "N2",   "3": "N3"}
@@ -1945,11 +1949,11 @@ def server(input, output, session):
                                 np.interp(60.0,  _CURVE_T, s_aft)),
         ]:
             chips.append(
-                f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#F1F3F7;">'
+                f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#F0F2F5;">'
                 f'<span class="mc-label">{label} · Cox PH</span>'
                 f'<span class="mc-value mc-cox">{s_cox_value*100:.1f}%</span>'
                 f'</div>'
-                f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#EFF9F7;">'
+                f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#EEF6F4;">'
                 f'<span class="mc-label">{label} · AFT</span>'
                 f'<span class="mc-value mc-aft">{s_aft_value*100:.1f}%</span>'
                 f'</div>'
@@ -2110,7 +2114,7 @@ def server(input, output, session):
             return f"{v:.{decimals}f}" if isinstance(v, float) and not np.isnan(v) else "—"
 
         def _chip(label, train_v, test_v, clr, decimals=3):
-            _tint = "#F1F3F7" if clr == _COX_CLR else "#EFF9F7"
+            _tint = "#F0F2F5" if clr == _COX_CLR else "#EEF6F4"
             return (
                 f'<div class="metric-chip" style="--tile:{clr};--tint:{_tint};">'
                 f'<span class="mc-label">{label}</span>'
@@ -2125,7 +2129,7 @@ def server(input, output, session):
                   TR_COX.get("c_index", float("nan")), RES_COX["c_index"], _COX_CLR),
             _chip("Cox PH — IBS",
                   TR_COX.get("ibs", float("nan")), RES_COX["ibs"], _COX_CLR, 4),
-            f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#F1F3F7;">'
+            f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#F0F2F5;">'
             f'<span class="mc-label">Cox PH — mean AUC</span>'
             f'<span class="mc-value mc-cox">{_fmt(RES_COX["mean_auc"])}</span>'
             f'<span style="font-size:.60rem;color:{_MUTED};">test only</span>'
@@ -2134,7 +2138,7 @@ def server(input, output, session):
                   TR_AFT.get("c_index", float("nan")), RES_AFT["c_index"], _AFT_CLR),
             _chip("AFT — IBS",
                   TR_AFT.get("ibs", float("nan")), RES_AFT["ibs"], _AFT_CLR, 4),
-            f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#EFF9F7;">'
+            f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#EEF6F4;">'
             f'<span class="mc-label">AFT — mean AUC</span>'
             f'<span class="mc-value mc-aft">{_fmt(RES_AFT["mean_auc"])}</span>'
             f'<span style="font-size:.60rem;color:{_MUTED};">test only</span>'
