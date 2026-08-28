@@ -2,7 +2,7 @@
 survival_app.py — TCGA-LUAD Lung Adenocarcinoma Overall Survival
 ================================================================
 Cox Proportional Hazards  ×  Log-Logistic Accelerated Failure Time
-Real clinical data: TCGA-LUAD · N = 509 patients · NCI GDC API
+Clinical data: TCGA-LUAD · N = 509 patients · NCI GDC API
 Cell Press visual style · Research & educational use only
 """
 
@@ -119,10 +119,10 @@ _N_MAP = {"N0": 0, "N1": 1, "N2": 2, "N3": 3}
 FEAT_COLS = ["age", "stage", "t_stage", "n_stage", "m_stage"]
 FEAT_DISPLAY = {
     "age":     "Age (years)",
-    "stage":   "Stage (I–IV)",
-    "t_stage": "T Stage (T1–T4)",
-    "n_stage": "N Stage (N0–N3)",
-    "m_stage": "M Stage (M0/M1)",
+    "stage":   "AJCC Pathologic Stage (I–IV)",
+    "t_stage": "Pathologic T Category (T1–T4)",
+    "n_stage": "Pathologic N Category (N0–N3)",
+    "m_stage": "Pathologic M Category (M0/M1)",
 }
 
 
@@ -1490,20 +1490,20 @@ app_ui = ui.page_sidebar(
         ui.input_numeric("age", "Age (years)", value=65, min=18, max=100, step=1),
 
         ui.input_select(
-            "stage", "AJCC Stage",
+            "stage", "AJCC Pathologic Stage",
             {k: f"Stage {v}" for k, v in _stage_lbl.items()},
             selected="2",
         ),
-        ui.input_select("t_stage", "T Stage", _t_lbl, selected="2"),
-        ui.input_select("n_stage", "N Stage", _n_lbl, selected="0"),
-        ui.input_select("m_stage", "M Stage", _m_lbl, selected="0"),
+        ui.input_select("t_stage", "Pathologic T Category", _t_lbl, selected="2"),
+        ui.input_select("n_stage", "Pathologic N Category", _n_lbl, selected="0"),
+        ui.input_select("m_stage", "Pathologic M Category", _m_lbl, selected="0"),
 
         ui.input_action_button(
-            "submit", "Generate Forecast",
+            "submit", "Update Prediction",
             class_="btn btn-primary w-100",
             style="margin-top:10px;font-weight:600;",
         ),
-        ui.tags.div("Model Stack", class_="sec"),
+        ui.tags.div("Models", class_="sec"),
         ui.tags.div(
             ui.tags.span(
                 "■ Cox PH",
@@ -1516,7 +1516,7 @@ app_ui = ui.page_sidebar(
             style="line-height:2;",
         ),
         ui.tags.p(
-            f"TCGA-LUAD · train {N_TRAIN} / test {N_TEST} · median-imputed inputs",
+            f"TCGA-LUAD · training {N_TRAIN} / test {N_TEST} · training-median imputation",
             style=f"font-size:.72rem;color:{_MUTED};margin:4px 0 0;",
         ),
 
@@ -1526,15 +1526,15 @@ app_ui = ui.page_sidebar(
     ui.tags.style(_CSS),
     ui.tags.div(
         ui.tags.div(
-            ui.tags.div("Survival atlas", class_="hero-kicker"),
+            ui.tags.div("Survival prediction dashboard", class_="hero-kicker"),
             ui.tags.h3(
-                "TCGA-LUAD Survival Forecast Atlas",
+                "TCGA-LUAD Survival Prediction Dashboard",
                 class_="page-title",
             ),
             ui.tags.p(
-                f"Real TCGA-LUAD cohort from the NCI GDC API · N={N_TOTAL} patients · "
-                f"event rate {EV_RATE:.0%} · median follow-up {MED_FU:.0f} months. "
-                f"The app contrasts Cox PH with {DIST['best']} AFT using a fixed train/test split.",
+                f"TCGA-LUAD cohort from the NCI Genomic Data Commons · N = {N_TOTAL} patients · "
+                f"observed event rate = {EV_RATE:.0%} · median follow-up = {MED_FU:.0f} months. "
+                f"Cox PH and {DIST['best']} AFT models are compared using a fixed, stratified training/test split.",
                 class_="page-subtitle",
             ),
             class_="hero-copy",
@@ -1543,11 +1543,11 @@ app_ui = ui.page_sidebar(
             _summary_tile(
                 "Cohort",
                 f"{N_TOTAL}",
-                f"train {N_TRAIN} / test {N_TEST} patients",
+                f"{N_TRAIN} training / {N_TEST} test patients",
                 "accent-blue",
             ),
             _summary_tile(
-                "Event burden",
+                "Observed events",
                 f"{EV_RATE:.0%}",
                 "overall survival event rate in the full cohort",
                 "accent-teal",
@@ -1571,11 +1571,11 @@ app_ui = ui.page_sidebar(
 
     ui.navset_tab(
         ui.nav_panel(
-            "Patient Explorer",
+            "Patient Prediction",
             _section_head(
-                "Forecast desk",
-                "Patient-specific survival projection",
-                "The first view focuses on one patient at a time: two survival models, key time-point probabilities, and compact interpretation cues.",
+                "Individual prediction",
+                "Patient-specific survival estimates",
+                "Compare Cox PH and parametric AFT survival estimates for one patient across clinically relevant time points.",
             ),
             ui.output_ui("info_bar"),
             ui.card(
@@ -1598,10 +1598,9 @@ app_ui = ui.page_sidebar(
                         ui.tags.p(
                             "The solid navy curve is the Cox PH projection; the "
                             "dashed teal curve is the "
-                            f"{DIST['best']} AFT projection. The pale blue-teal band "
-                            "marks the agreement region between the two models, "
-                            "and the dotted rules mark the 12 / 24 / 36 / 60 "
-                            "month horizons.",
+                            f"{DIST['best']} AFT estimate. The shaded band shows "
+                            "the difference between the two model estimates, and the "
+                            "dotted lines mark the 12-, 24-, 36-, and 60-month time points.",
                             style="font-size:.82rem;line-height:1.6;color:var(--muted);",
                         ),
                         class_="result-frame result-survival",
@@ -1613,31 +1612,31 @@ app_ui = ui.page_sidebar(
             ui.tags.div(
                 _note_block(
                     "Inputs used",
-                    "Age plus AJCC stage, T stage, N stage, and M stage drive both models. Missing values are handled with training-set median imputation.",
+                    "Age, AJCC pathologic stage, and pathologic T, N, and M categories are used as predictors in both models. Missing values are imputed using training-set medians.",
                 ),
                 _note_block(
                     "Model pairing",
-                    f"Cox PH and {DIST['best']} AFT are shown together so agreement and divergence remain visible instead of hidden behind a single score.",
+                    f"Cox PH and {DIST['best']} AFT estimates are shown together so agreement and divergence between the models remain visible.",
                 ),
                 _note_block(
-                    "Use boundary",
-                    "This interface is for research and educational review. It exposes train/test behavior and is not a clinical decision system.",
+                    "Intended use",
+                    "This interface is intended for research and education. It displays training and test performance and is not a clinical decision-support system.",
                 ),
                 class_="note-grid",
             ),
             ui.tags.p(
-                "Based on real TCGA-LUAD data. For research and educational use only. "
-                "Not a clinical diagnostic tool.",
+                "Based on TCGA-LUAD data. For research and educational use only; "
+                "not intended for clinical decision-making or individual prognostic counseling.",
                 class_="disclaimer",
             ),
         ),
 
         ui.nav_panel(
-            "Cohort Landscape",
+            "Cohort Overview",
             _section_head(
-                "Cohort map",
-                "Stage distribution, survival shape, and usage footprint",
-                "This view borrows a landscape structure: stage composition first, then the marginal survival fit, then the global audience footprint.",
+                "Cohort summary",
+                "Stage distribution and marginal survival",
+                "Review stage composition, compare candidate marginal survival distributions, and view aggregate visitor activity.",
             ),
             ui.tags.div(
                 _stage_tile("1"),
@@ -1676,18 +1675,19 @@ app_ui = ui.page_sidebar(
                                       "margin:12px 0 5px;",
                             ),
                             ui.tags.p(
-                                "The Akaike Information Criterion (AIC) penalises model "
-                                "complexity while rewarding goodness-of-fit. "
-                                "The distribution with the lowest AIC best captures the "
-                                "marginal shape of the observed survival times.",
+                                "The Akaike Information Criterion (AIC) balances goodness "
+                                "of fit against model complexity. Among the candidate "
+                                "families, the distribution with the lowest AIC provides "
+                                "the preferred marginal fit.",
                                 style="font-size:.70rem;line-height:1.48;color:var(--ct);",
                             ),
                             ui.tags.p(
                                 "Best fit: ",
                                 ui.tags.strong(DIST["best"]),
                                 " — selected as the AFT family for the parametric model. "
-                                "Unlike Cox PH, this parametric form supports analytical "
-                                "extrapolation beyond the 72-month follow-up window.",
+                                "Unlike Cox PH, this parametric form permits model-based "
+                                "extrapolation beyond the 72-month follow-up window; such "
+                                "estimates should be interpreted cautiously.",
                                 style="font-size:.70rem;line-height:1.48;color:var(--ct);",
                             ),
                             style="padding:2px 2px 0;",
@@ -1717,11 +1717,11 @@ app_ui = ui.page_sidebar(
         ),
 
         ui.nav_panel(
-            "Model Arena",
+            "Model Evaluation",
             _section_head(
-                "Benchmark view",
-                "Train and test performance in one place",
-                "The arena view keeps rank ordering, uncertainty, and overfitting signals together so model choice stays evidence-driven.",
+                "Performance comparison",
+                "Training and test performance",
+                "Compare discrimination, prediction error, uncertainty, and training-to-test differences for both survival models.",
             ),
             ui.output_ui("perf_chips"),
             ui.tags.div(
@@ -1745,7 +1745,7 @@ app_ui = ui.page_sidebar(
                 ),
                 _summary_tile(
                     "Evaluation window",
-                    "12-60 m",
+                    "12–60 m",
                     "IBS and dynamic AUC are aligned to shared follow-up times",
                     "accent-salmon",
                 ),
@@ -1753,7 +1753,7 @@ app_ui = ui.page_sidebar(
             ),
             ui.card(
                 ui.card_header(
-                    f"Train / Test Comparison — N={N_TEST} held-out patients"
+                    f"Training and Test Comparison — N = {N_TEST} held-out patients"
                 ),
                 ui.tags.div(
                     ui.output_ui("perf_plot_desktop"),
@@ -1782,18 +1782,18 @@ app_ui = ui.page_sidebar(
                 ),
                 _note_block(
                     "Overfitting check",
-                    "The train/test pairing is deliberately visible. A large gap is the first warning sign that a model is memorizing the training cohort.",
+                    "Training and test estimates are shown together. A large difference may indicate overfitting.",
                 ),
                 class_="note-grid",
             ),
         ),
 
         ui.nav_panel(
-            "Methods Atlas",
+            "Methods",
             _section_head(
                 "Reproducibility",
-                "Bundle contents, preprocessing, and evaluation rules",
-                "Everything below is tied to the deployed bundle so the modeling assumptions behind the interface remain inspectable.",
+                "Model specification, preprocessing, and evaluation",
+                "The information below is loaded from the deployed bundle so the model assumptions and evaluation procedures remain inspectable.",
             ),
             ui.output_ui("methods_panel"),
         ),
@@ -1801,7 +1801,7 @@ app_ui = ui.page_sidebar(
         id="main_tab",
     ),
 
-    title="TCGA-LUAD Survival Atlas",
+    title="TCGA-LUAD Survival Dashboard",
     fillable=True,
 )
 
@@ -2056,8 +2056,8 @@ def server(input, output, session):
   </table>
 </div>
 <p style="font-size:.64rem;color:{_MUTED};margin-top:8px;line-height:1.42;">
-  Right-side values show AFT minus Cox PH at each horizon.<br>
-  Both models are consistent with population-level TCGA-LUAD survival data.
+  The rightmost column shows the AFT estimate minus the Cox PH estimate at each time point.<br>
+  These model-based estimates were derived from TCGA-LUAD data and have not been clinically validated for individual prognosis.
 </p>
 """)
 
@@ -2120,7 +2120,7 @@ def server(input, output, session):
                 f'<span class="mc-label">{label}</span>'
                 f'<span class="mc-value" style="color:{clr};">'
                 f'{_fmt(train_v, decimals)} / {_fmt(test_v, decimals)}</span>'
-                f'<span style="font-size:.60rem;color:{_MUTED};">train / test</span>'
+                f'<span style="font-size:.60rem;color:{_MUTED};">training / test</span>'
                 f'</div>'
             )
 
@@ -2185,21 +2185,21 @@ def server(input, output, session):
 <div class="methods">
 
   <div class="card" style="margin-bottom:14px;">
-    <div class="card-header">Model Comparison — Train / Test
+    <div class="card-header">Model Comparison — Training and Test Sets
       &nbsp;<span style="font-weight:400;font-size:.78em;color:{_MUTED};">
-        Train N={N_TRAIN} · Test N={N_TEST} · ★ = best test C-index</span>
+        Training N = {N_TRAIN} · Test N = {N_TEST} · ★ = highest test C-index</span>
     </div>
     <div class="card-body" style="padding:14px!important;">
       <table class="mtbl">
         <thead><tr>
-          <th>Model</th><th>C-index (train / test)</th><th>95% Bootstrap CI</th>
-          <th>IBS (train / test)</th><th>Mean AUC (test)</th>
+          <th>Model</th><th>C-index (training / test)</th><th>95% Bootstrap CI</th>
+          <th>IBS (training / test)</th><th>Mean AUC (test)</th>
         </tr></thead>
         <tbody>{cmp_rows}</tbody>
       </table>
       <p style="font-size:.74rem;color:{_MUTED};margin-top:8px;">
         Training metrics are apparent performance (no resampling).
-        A large train–test gap indicates overfitting.
+        A large difference between training and test performance may indicate overfitting.
       </p>
     </div>
   </div>
@@ -2208,13 +2208,14 @@ def server(input, output, session):
     <div class="card-header">Methods</div>
     <div class="card-body" style="padding:14px!important;">
       <h4>Data</h4>
-      <p>TCGA-LUAD (The Cancer Genome Atlas — Lung Adenocarcinoma).
-      {N_TOTAL} patients downloaded from the NCI Genomic Data Commons (GDC) public API,
-      no registration required.
-      Outcome: overall survival (OS) — days to death or last follow-up converted to months.
-      Event rate {EV_RATE:.0%} · median follow-up {MED_FU:.0f} months.
-      Split 80/20 (stratified by event) → train N={N_TRAIN}, test N={N_TEST}.
-      Missing values imputed by training-set median.</p>
+      <p>The TCGA-LUAD cohort represents lung adenocarcinoma cases from The Cancer
+      Genome Atlas. Data for {N_TOTAL} patients were obtained from the public NCI
+      Genomic Data Commons API. Overall survival was defined as time from diagnosis
+      to death or last follow-up and converted from days to months. The observed
+      event rate was {EV_RATE:.0%}, and median follow-up was {MED_FU:.0f} months.
+      Data were divided using an 80/20 split stratified by event status
+      (training N = {N_TRAIN}; test N = {N_TEST}). Missing values were imputed using
+      training-set medians.</p>
 
       <h4>Distribution selection</h4>
       <p>Four parametric families (Weibull, Log-Normal, Log-Logistic, Exponential) were
@@ -2225,22 +2226,23 @@ def server(input, output, session):
        DIST['table'].set_index('Distribution').loc[DIST['best'],'AIC']:.1f} points).</p>
 
       <h4>Cox Proportional Hazards</h4>
-      <p>Semi-parametric model (lifelines). L2 regularisation — penaliser tuned by
+      <p>A semiparametric Cox model was fitted with lifelines. The L2 penalizer was tuned by
       5-fold CV grid search over [0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0].
-      Selected penaliser: {COX._penalizer_used}. Survival curves computed via
-      Breslow baseline hazard estimator.</p>
+      The selected penalizer was {COX._penalizer_used}. Survival curves were derived
+      using the Breslow baseline-hazard estimator.</p>
 
       <h4>{DIST['best']} Accelerated Failure Time</h4>
-      <p>Fully parametric AFT model (lifelines). The AFT framework models survival time
-      directly: log(T) = Xβ + σε, where ε follows the {DIST['best']} error distribution.
-      Covariate effects are multiplicative on survival time — a hazard ratio analogue is
-      not required. Closed-form S(t|x) allows reliable extrapolation beyond the observed
-      follow-up period.</p>
+      <p>A fully parametric AFT model was fitted with lifelines. The AFT framework
+      models survival time directly: log(T) = Xβ + σε, where ε follows the
+      {DIST['best']} error distribution. Coefficients act on survival time rather than
+      the hazard. The closed-form survival function permits model-based extrapolation,
+      but estimates beyond the observed follow-up period require caution.</p>
 
       <h4>Evaluation</h4>
-      <p>C-index (Harrell's concordance) with 95% bootstrap CI (150 resamples).
-      Integrated Brier Score (IBS) over [12, 24, 36, 48, 60] months.
-      Time-dependent AUC (cumulative / dynamic definition).</p>
+      <p>Training-set C-index and IBS are reported as apparent performance. Test-set
+      C-index is accompanied by a 95% bootstrap confidence interval based on 150
+      resamples. IBS is evaluated at 12, 24, 36, 48, and 60 months. Test-set
+      time-dependent AUC uses the cumulative/dynamic definition.</p>
     </div>
   </div>
 
@@ -2254,7 +2256,7 @@ def server(input, output, session):
         <tbody>{feat_rows}</tbody>
       </table>
       <p style="font-size:.76rem;color:{_MUTED};margin-top:10px;">
-        Missing values: imputed by training-set median.
+        Missing values were imputed using training-set medians.
         Stage distribution: I={int(STAGE_COUNTS.get("1", 0))}
         · II={int(STAGE_COUNTS.get("2", 0))}
         · III={int(STAGE_COUNTS.get("3", 0))}

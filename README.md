@@ -1,6 +1,6 @@
-# TCGA-LUAD Overall Survival Command Center
+# TCGA-LUAD Survival Prediction Dashboard
 
-An interactive [Shiny for Python](https://shiny.posit.co/py/) dashboard for transparent overall-survival prediction with Cox proportional hazards and parametric accelerated failure time models.
+An interactive [Shiny for Python](https://shiny.posit.co/py/) dashboard that compares Cox proportional hazards and parametric accelerated failure time models for overall survival prediction.
 
 [Open the live application](https://medictio.shinyapps.io/nsclc-survival/)
 
@@ -13,7 +13,7 @@ An interactive [Shiny for Python](https://shiny.posit.co/py/) dashboard for tran
 
 ## Overview
 
-The application uses publicly available clinical data from the [TCGA Lung Adenocarcinoma project](https://portal.gdc.cancer.gov/projects/TCGA-LUAD), obtained through the NCI Genomic Data Commons API. The checked-in model bundle contains 509 evaluable patients, with an overall-survival event rate of 36% and median observed follow-up of 21.6 months.
+The application uses publicly available clinical data from the [TCGA Lung Adenocarcinoma project](https://portal.gdc.cancer.gov/projects/TCGA-LUAD), obtained through the NCI Genomic Data Commons API. The checked-in model bundle contains 509 evaluable patients, with an overall survival event rate of 36% and median observed follow-up of 21.6 months.
 
 The dashboard provides:
 
@@ -41,9 +41,9 @@ TCGA-LUAD clinical survival data (n = 509)
                          |
           +--------------+--------------+
           |                             |
-   L2-regularised Cox PH          Parametric AFT
-  5-fold CV penaliser grid      family selected by AIC
-  selected penaliser = 0.001   Log-Logistic selected
+   L2-regularized Cox PH          Parametric AFT
+  5-fold CV penalizer grid       family selected by AIC
+  selected penalizer = 0.001     Log-Logistic selected
           |                             |
           +--------------+--------------+
                          |
@@ -53,17 +53,17 @@ TCGA-LUAD clinical survival data (n = 509)
        Saved bundle -> Shiny survival dashboard
 ```
 
-The fixed split contains 407 training patients and 102 held-out test patients. Imputation, Cox penaliser tuning, parametric-family selection, and model fitting use the training split only.
+The fixed split contains 407 training patients and 102 held-out test patients. Imputation, Cox penalizer tuning, parametric-family selection, and model fitting use the training split only.
 
 ### Predictors
 
 The current `tcga_luad_app_bundle.pkl` uses five clinical predictors:
 
 1. age at diagnosis;
-2. AJCC pathological stage;
-3. pathological T stage;
-4. pathological N stage; and
-5. pathological M stage.
+2. AJCC pathologic stage;
+3. pathologic T category;
+4. pathologic N category; and
+5. pathologic M category.
 
 Missing predictor values are imputed with training-set medians. Users must preserve the coding and units expected by the application.
 
@@ -73,7 +73,7 @@ The outcome is overall survival from diagnosis to death or last follow-up, conve
 
 The application compares two model families:
 
-- **Cox PH:** a semi-parametric proportional-hazards model with L2 regularisation and a Breslow baseline hazard estimator.
+- **Cox PH:** a semiparametric proportional-hazards model with L2 regularization and a Breslow baseline-hazard estimator.
 - **Log-Logistic AFT:** a parametric accelerated failure time model selected by the lowest training-set AIC among Weibull, Log-Normal, Log-Logistic, and Exponential candidates.
 
 Displayed values such as `S(24 months)` are predicted probabilities of remaining alive beyond the specified time. They are population-model estimates rather than guarantees for an individual patient.
