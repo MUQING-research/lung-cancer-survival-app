@@ -20,8 +20,8 @@
   --navy: #3C5488;
   --teal: #00A087;
   --salmon: #F39B7F;
-  --r: 10px;
-  --r-sm: 7px;
+  --r: 4px;
+  --r-sm: 3px;
   --font: 'Arial', 'Helvetica Neue', Helvetica, 'Liberation Sans', 'DejaVu Sans', sans-serif;
 }
 
@@ -59,7 +59,7 @@ body {
   width: 9px;
   height: 9px;
   margin-right: .65rem;
-  border-radius: 2px;
+  border-radius: 1px;
   background: var(--accent);
   box-shadow: 0 0 0 3px rgba(46, 111, 142, .11);
   content: '';
@@ -177,7 +177,7 @@ body {
   padding: 24px 24px 17px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 4px;
   background: linear-gradient(135deg, #FFFFFF 0%, #F3F8FA 100%);
   box-shadow: 0 8px 24px rgba(23, 35, 49, .07);
 }
@@ -219,7 +219,7 @@ body {
   width: 3.4rem;
   height: 3px;
   margin-top: .58rem;
-  border-radius: 999px;
+  border-radius: 1px;
   background: var(--accent-bright);
   content: '';
 }
@@ -421,7 +421,7 @@ body {
 .fig-no { color: var(--accent); font-weight: 800; }
 .disclaimer { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); text-align: center; }
 .responsive-figure { display: flex; justify-content: center; padding: 8px; box-sizing: border-box; }
-.responsive-figure img { display: block; width: auto !important; height: auto !important; max-width: 100%; max-height: 520px; margin: 0 auto; border: 1px solid var(--line); border-radius: 5px; object-fit: contain; }
+.responsive-figure img { display: block; width: auto !important; height: auto !important; max-width: 100%; max-height: 520px; margin: 0 auto; border: 1px solid var(--line); border-radius: 2px; object-fit: contain; }
 .responsive-plot-mobile { display: none; }
 .equal-card { display: flex; flex-direction: column; height: 100%; }
 .equal-card .card-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
