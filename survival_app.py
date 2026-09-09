@@ -33,6 +33,7 @@ from sklearn.model_selection import train_test_split
 from sksurv.metrics import brier_score as _brier_score
 from sksurv.util import Surv
 
+from chart_views import CELL_COLORS
 import survival_core as sc
 from survival_core import (
     BRAND, EVENT_COL, SEED, TIME_COL,
@@ -68,8 +69,8 @@ if os.name == "nt":
 
 sc.apply_cell_matplotlib_style()
 
-_COX_CLR = BRAND["navy"]
-_AFT_CLR = BRAND["green"]
+_COX_CLR = CELL_COLORS[0]
+_AFT_CLR = CELL_COLORS[1]
 _MUTED   = BRAND["brown"]
 _INK_SV  = "#111111"     # reference rules / misc ink
 _AXIS_SV = "#334155"     # axis spines
@@ -1008,18 +1009,11 @@ def _make_perf_plot(is_narrow: bool):
     return fig
 
 
-_PERF_DESKTOP_IMG = _figure_tag(
-    _make_perf_plot(False),
-    "C-index and time-dependent AUC model performance comparison",
-)
-_PERF_MOBILE_IMG = _figure_tag(
-    _make_perf_plot(True),
-    "C-index and time-dependent AUC model performance comparison",
-)
-_DIST_IMG = _figure_tag(
-    _make_dist_fig(),
-    "Marginal survival distribution with parametric fits",
-)
+import chart_views as charts
+
+_CINDEX_SRC = charts.png(charts.cindex_figure(globals()))
+_AUC_SRC = charts.png(charts.auc_figure(globals()))
+_DIST_SRC = charts.png(charts.distribution_figure(globals()))
 print("  Static figures rendered.", flush=True)
 
 
@@ -1558,58 +1552,40 @@ def _note_block(title: str, copy: str) -> ui.Tag:
         class_="note-block",
     )
 
-app_ui = ui.page_sidebar(
-    ui.sidebar(
-        ui.tags.div("Patient Profile", class_="sec"),
-
-        ui.input_numeric("age", "Age (years)", value=65, min=18, max=100, step=1),
-
-        ui.input_select(
-            "stage", "AJCC Pathologic Stage",
-            {k: f"Stage {v}" for k, v in _stage_lbl.items()},
-            selected="2",
-        ),
-        ui.input_select("t_stage", "Pathologic T Category", _t_lbl, selected="2"),
-        ui.input_select("n_stage", "Pathologic N Category", _n_lbl, selected="0"),
-        ui.input_select("m_stage", "Pathologic M Category", _m_lbl, selected="0"),
-
-        ui.input_action_button(
-            "submit", "Update Prediction",
-            class_="btn btn-primary w-100",
-            style="margin-top:10px;font-weight:600;",
-        ),
-        ui.tags.div("Models", class_="sec"),
+def _input_panel():
+    return ui.tags.aside(
+        ui.tags.div("PATIENT PROFILE", class_="input-eyebrow"),
+        ui.tags.h4("Describe the patient", class_="input-title"),
+        ui.tags.p("Enter age and pathologic stage to compare two survival models.",
+                  class_="input-copy"),
+        ui.tags.div("Patient & overall stage", class_="input-group-label"),
         ui.tags.div(
-            ui.tags.span(
-                "■ Cox PH",
-                style=f"color:{_COX_CLR};font-weight:600;font-size:.80rem;",
-            ),
-            ui.tags.span(
-                " ■ Log-Logistic AFT",
-                style=f"color:{_AFT_CLR};font-weight:600;font-size:.80rem;",
-            ),
-            style="line-height:2;",
+            ui.input_numeric("age", "Age (years)", value=65, min=18, max=100, step=1),
+            ui.input_select("stage", "AJCC stage",
+                            {k: f"Stage {v}" for k, v in _stage_lbl.items()}, selected="2"),
+            class_="input-grid",
         ),
-        ui.tags.p(
-            f"TCGA-LUAD · training {N_TRAIN} / test {N_TEST} · training-only imputation",
-            style=f"font-size:.72rem;color:{_MUTED};margin:4px 0 0;",
+        ui.tags.div("Pathologic TNM categories", class_="input-group-label"),
+        ui.tags.div(
+            ui.input_select("t_stage", "Tumor (T)", _t_lbl, selected="2"),
+            ui.input_select("n_stage", "Nodes (N)", _n_lbl, selected="0"),
+            class_="input-grid",
         ),
+        ui.input_select("m_stage", "Metastasis (M)", _m_lbl, selected="0"),
+        ui.input_action_button("submit", "Update Prediction", class_="btn btn-primary w-100"),
+        ui.tags.p("Inputs are applied when you update the prediction.", class_="input-hint"),
+        class_="input-panel", **{"aria-label": "Patient inputs"},
+    )
 
-        width=300,
-    ),
 
+app_ui = ui.page_fluid(
     ui.tags.style(_CSS),
     ui.tags.div(
         ui.tags.div(
             ui.tags.div("Survival prediction dashboard", class_="hero-kicker"),
-            ui.tags.h3(
-                "TCGA-LUAD Survival Prediction Dashboard",
-                class_="page-title",
-            ),
+            ui.tags.h3("Lung Cancer Survival", class_="page-title"),
             ui.tags.p(
-                f"TCGA-LUAD cohort from the NCI Genomic Data Commons · N = {N_TOTAL} patients · "
-                f"observed event rate = {EV_RATE:.0%} · median follow-up = {MED_FU:.0f} months. "
-                f"Cox PH and {DIST['best']} AFT models are compared using a fixed, stratified training/test split.",
+                "TCGA-LUAD | Compare Cox PH and Log-Logistic AFT projections for overall survival.",
                 class_="page-subtitle",
             ),
             class_="hero-copy",
@@ -1652,34 +1628,23 @@ app_ui = ui.page_sidebar(
                 "Patient-specific survival estimates",
                 "Compare Cox PH and parametric AFT survival estimates for one patient across clinically relevant time points.",
             ),
-            ui.output_ui("info_bar"),
-            ui.layout_columns(
-                ui.card(
-                    ui.card_header("Predicted Survival Curves"),
-                    ui.tags.div(
-                        ui.output_plot("survival_curve", width="100%", height="100%"),
-                        class_="plot-frame plot-survival-full",
+            ui.tags.div(
+                _input_panel(),
+                ui.tags.div(
+                    ui.card(
+                        ui.tags.div(ui.output_ui("survival_curve"),
+                                    class_="chart-image chart-wide desktop-chart"),
+                        ui.tags.div(ui.output_ui("survival_curve_mobile"),
+                                    class_="chart-image chart-square mobile-chart"),
                     ),
-                    class_="equal-card",
-                ),
-                ui.card(
-                    ui.card_header("Key Time Points and Interpretation"),
-                    ui.output_ui("prob_table"),
-                    ui.tags.div(
-                        ui.tags.div("Reading the curves", class_="note-title"),
-                        ui.tags.p(
-                            "The solid navy curve is the Cox PH projection; the "
-                            "dashed teal curve is the "
-                            f"{DIST['best']} AFT estimate. The shaded band shows "
-                            "the difference between the two model estimates, and the "
-                            "dotted lines mark the 12-, 24-, 36-, and 60-month time points.",
-                            style="font-size:.76rem;line-height:1.52;color:var(--muted);margin:6px 0 0;",
-                        ),
-                        style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px;",
+                    ui.output_ui("info_bar"),
+                    ui.tags.details(
+                        ui.tags.summary("All time points and model differences"),
+                        ui.output_ui("prob_table"), class_="detail-panel",
                     ),
-                    class_="equal-card",
+                    class_="prediction-results",
                 ),
-                col_widths=[8, 4],
+                class_="prediction-workspace",
             ),
             ui.tags.div(
                 _note_block(
@@ -1724,14 +1689,7 @@ app_ui = ui.page_sidebar(
                     ),
                     ui.tags.div(
                         ui.output_ui("dist_plot"),
-                        class_="plot-frame plot-survival",
-                    ),
-                    ui.tags.p(
-                        ui.tags.span("Figure 1", class_="fig-no"),
-                        " · Kaplan-Meier estimate of marginal survival "
-                        "with parametric fits; the AIC-best distribution "
-                        f"({DIST['best']}) is highlighted.",
-                        class_="figure-caption",
+                        class_="chart-image chart-square",
                     ),
                     class_="equal-card",
                 ),
@@ -1770,11 +1728,13 @@ app_ui = ui.page_sidebar(
                 ),
                 col_widths=[7, 5],
             ),
-            ui.layout_columns(
+            ui.tags.details(
+                ui.tags.summary("Visitor activity"),
+                ui.layout_columns(
                 ui.card(
                     ui.card_header("Global Visitor Map"),
                     ui.tags.div(
-                        ui.output_plot("visit_map", width="100%", height="100%"),
+                        ui.output_ui("visit_map"),
                         class_="plot-frame plot-map",
                     ),
                     class_="equal-card",
@@ -1785,6 +1745,8 @@ app_ui = ui.page_sidebar(
                     class_="equal-card",
                 ),
                 col_widths=[8, 4],
+                ),
+                class_="detail-panel",
             ),
         ),
 
@@ -1796,47 +1758,12 @@ app_ui = ui.page_sidebar(
                 "Compare discrimination, prediction error, uncertainty, and training-to-test differences for both survival models.",
             ),
             ui.output_ui("perf_chips"),
-            ui.layout_columns(
-                ui.card(
-                    ui.card_header(
-                        f"Training and Test Comparison — N = {N_TEST} held-out patients"
-                    ),
-                    ui.tags.div(
-                        ui.output_ui("perf_plot_desktop"),
-                        class_="responsive-figure responsive-plot-desktop",
-                    ),
-                    ui.tags.div(
-                        ui.output_ui("perf_plot_mobile"),
-                        class_="responsive-figure responsive-plot-mobile",
-                    ),
-                    ui.tags.p(
-                        ui.tags.span("Figure 2", class_="fig-no"),
-                        " · Model comparison on the held-out test set: "
-                        "Harrell's C-index with 95% bootstrap intervals (A) and "
-                        "time-dependent AUC at 12–60 months (B).",
-                        class_="figure-caption",
-                    ),
-                ),
-                ui.tags.div(
-                    _summary_tile(
-                        "AFT family",
-                        DIST["best"],
-                        f"AIC-selected from {len(DIST['table'])} parametric candidates",
-                        "accent-teal",
-                    ),
-                    _summary_tile(
-                        "Evaluation window",
-                        "12–60 m",
-                        "IBS and dynamic AUC use shared follow-up times",
-                        "accent-salmon",
-                    ),
-                    _note_block(
-                        "Held-out sample",
-                        f"All test estimates shown here use the same {N_TEST} patients.",
-                    ),
-                    class_="performance-rail",
-                ),
-                col_widths=[9, 3],
+            ui.tags.div(
+                ui.card(ui.tags.div(ui.output_ui("perf_plot_cindex"),
+                                    class_="chart-image chart-square")),
+                ui.card(ui.tags.div(ui.output_ui("perf_plot_auc"),
+                                    class_="chart-image chart-square")),
+                class_="chart-grid",
             ),
             ui.tags.div(
                 _note_block(
@@ -1869,7 +1796,7 @@ app_ui = ui.page_sidebar(
     ),
 
     title="TCGA-LUAD Survival Dashboard",
-    fillable=True,
+    class_="dashboard-shell",
 )
 
 
@@ -1920,12 +1847,16 @@ def server(input, output, session):
         _refresh_tick.get()  # re-fetch when the tick advances
         return _fetch_visits_sv()
 
-    @render.plot(alt="Global visitor map")
+    @render.ui
     def visit_map():
-        return _make_visit_map_sv(
+        fig = _make_visit_map_sv(
             _visits(), _user_loc["lat"], _user_loc["lon"],
             _ANALYTICS_STATE["mode"],
         )
+        fig.set_size_inches(7, 3.5)
+        fig.axes[0].set_title("Global visitor activity", loc="left", fontsize=10, fontweight="bold")
+        charts.finish(fig, "Source: app visit logs. Locations are approximate; unavailable locations are omitted.")
+        return ui.tags.img(src=charts.png(fig), alt="Aggregate visitor locations on a world map")
 
     @render.ui
     def visit_stats():
@@ -2005,90 +1936,36 @@ def server(input, output, session):
 
     @render.ui
     def info_bar():
-        s_cox, s_aft = curves()
+        cox, aft = curves()
         chips = []
-        for label, t, s_cox_value, s_aft_value in [
-            ("1-yr OS", 12.0,  np.interp(12.0,  _CURVE_T, s_cox),
-                                np.interp(12.0,  _CURVE_T, s_aft)),
-            ("3-yr OS", 36.0,  np.interp(36.0,  _CURVE_T, s_cox),
-                                np.interp(36.0,  _CURVE_T, s_aft)),
-            ("5-yr OS", 60.0,  np.interp(60.0,  _CURVE_T, s_cox),
-                                np.interp(60.0,  _CURVE_T, s_aft)),
-        ]:
+        for label, month in (("1-yr survival", 12), ("3-yr survival", 36), ("5-yr survival", 60)):
+            first = float(np.interp(month, _CURVE_T, cox))
+            second = float(np.interp(month, _CURVE_T, aft))
             chips.append(
-                f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#F0F2F5;">'
-                f'<span class="mc-label">{label} · Cox PH</span>'
-                f'<span class="mc-value mc-cox">{s_cox_value*100:.1f}%</span>'
-                f'</div>'
-                f'<div class="metric-chip" style="--tile:{_AFT_CLR};--tint:#EEF6F4;">'
-                f'<span class="mc-label">{label} · AFT</span>'
-                f'<span class="mc-value mc-aft">{s_aft_value*100:.1f}%</span>'
-                f'</div>'
+                f'<div class="metric-chip" style="--tile:{_COX_CLR};--tint:#FFFFFF;">'
+                f'<span class="mc-label">{label}</span>'
+                f'<span class="model-value" style="color:{_COX_CLR};">'
+                f'<small>Cox PH</small><strong>{first:.1%}</strong></span>'
+                f'<span class="model-value" style="color:{_AFT_CLR};">'
+                f'<small>AFT</small><strong>{second:.1%}</strong></span></div>'
             )
         return ui.HTML('<div class="infobar">' + "".join(chips) + "</div>")
 
     # ── Survival curve plot ───────────────────────────────────────────────────
 
-    @render.plot(alt="Predicted survival curves for the current patient")
+    @render.ui
     def survival_curve():
-        s_cox, s_aft = curves()
+        cox, aft = curves()
+        return ui.tags.img(src=charts.png(charts.survival_figure(_CURVE_T, cox, aft)),
+                           alt="Patient Cox PH and Log-Logistic AFT survival projections")
 
-        fig, ax = plt.subplots(figsize=(7.0, 3.5))
-        _cell_ax(fig, ax)
-
-        ax.plot(_CURVE_T, s_cox, color=_COX_CLR, lw=1.0, label="Cox PH", zorder=4)
-        ax.plot(_CURVE_T, s_aft, color=_AFT_CLR, lw=1.0, ls="--",
-                label=f"{DIST['best']} AFT", zorder=4)
-
-        ax.fill_between(_CURVE_T, s_cox, s_aft,
-                        alpha=0.10, color=BRAND["mint"], linewidth=0, zorder=1)
-
-        for t_ref in _REF_T:
-            ax.axvline(t_ref, color=_REF_GRAY, lw=0.8, ls=":", zorder=0)
-
-        ax.axhline(0.5, color=_REF_GRAY, lw=1.0, ls="--", zorder=0)
-        ax.text(71.5, 0.515, "50%", ha="right", va="bottom",
-                fontsize=6.5, color=_MUTED)
-
-        for t_ann in _REF_T:
-            sc = float(np.interp(t_ann, _CURVE_T, s_cox))
-            sa = float(np.interp(t_ann, _CURVE_T, s_aft))
-            ax.scatter(t_ann, sc, color=_COX_CLR, s=16, marker="o", zorder=6)
-            ax.scatter(t_ann, sa, color=_AFT_CLR, s=16, marker="o", zorder=6)
-            if t_ann in (12., 24., 36., 60.):
-                ax.text(t_ann + 0.8, min(sc + 0.035, 1.02), f"{sc*100:.0f}%",
-                        ha="left", va="center", fontsize=5.8, color=_COX_CLR)
-                ax.text(t_ann + 0.8, max(sa - 0.035, 0.04), f"{sa*100:.0f}%",
-                        ha="left", va="center", fontsize=5.8, color=_AFT_CLR)
-
-        for label, s_arr, clr, y_txt in [
-            ("Cox median", s_cox, _COX_CLR, 0.12),
-            ("AFT median", s_aft, _AFT_CLR, 0.06),
-        ]:
-            med_t = _median_crossing(_CURVE_T, s_arr)
-            if med_t is not None and med_t <= 72:
-                ax.vlines(med_t, 0.0, 0.5, color=clr, lw=0.8,
-                          linestyles=":", zorder=2)
-                ax.text(med_t + 1.0, y_txt, f"{label}: {med_t:.0f}m",
-                        ha="left", va="center", fontsize=6.3, color=clr)
-
-        ax.set_xlim(0, 72)
-        ax.set_ylim(0, 1.06)
-        ax.set_xticks([0, 12, 24, 36, 48, 60, 72])
-        ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
-        ax.set_xlabel("Time (months)")
-        ax.set_ylabel("Survival probability")
-        ax.legend(
-            fontsize=7.5,
-            frameon=False,
-            loc="lower center",
-            bbox_to_anchor=(0.5, 1.01),
-            ncol=2,
-            borderaxespad=0.0,
+    @render.ui
+    def survival_curve_mobile():
+        cox, aft = curves()
+        return ui.tags.img(
+            src=charts.png(charts.survival_figure(_CURVE_T, cox, aft, narrow=True)),
+            alt="Patient survival projections with a square mobile layout",
         )
-        fig.subplots_adjust(left=0.12, right=0.98, bottom=0.16, top=0.82)
-
-        return fig
 
     # ── Probability table ─────────────────────────────────────────────────────
 
@@ -2132,7 +2009,7 @@ def server(input, output, session):
 
     @render.ui
     def dist_plot():
-        return _DIST_IMG
+        return ui.tags.img(src=_DIST_SRC, alt="Training marginal survival and candidate parametric fits")
 
     # ── Distribution AIC table ────────────────────────────────────────────────
 
@@ -2166,12 +2043,12 @@ def server(input, output, session):
     # ── Model performance plot (pre-rendered at import) ───────────────────────
 
     @render.ui
-    def perf_plot_desktop():
-        return _PERF_DESKTOP_IMG
+    def perf_plot_cindex():
+        return ui.tags.img(src=_CINDEX_SRC, alt="Training and test C-index with test bootstrap intervals")
 
     @render.ui
-    def perf_plot_mobile():
-        return _PERF_MOBILE_IMG
+    def perf_plot_auc():
+        return ui.tags.img(src=_AUC_SRC, alt="Held-out test time-dependent AUC for Cox PH and AFT")
 
     # ── Performance metric chips ──────────────────────────────────────────────
 

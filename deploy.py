@@ -14,6 +14,7 @@ APP_ID = "17579074"
 ROOT = Path(__file__).resolve().parent
 RUNTIME_FILES = (
     "app.py",
+    "chart_views.py",
     "survival_app.py",
     "survival_core.py",
     "tcga_luad_app_bundle.pkl",

@@ -10,6 +10,7 @@ from huggingface_hub import CommitOperationAdd, HfApi
 REPO_ID = "muqing-research/nsclc-survival"
 FILES = (
     "app.py",
+    "chart_views.py",
     "survival_app.py",
     "survival_core.py",
     "tcga_luad_app_bundle.pkl",

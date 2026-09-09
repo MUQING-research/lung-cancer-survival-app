@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY survival_core.py survival_app.py app.py tcga_luad_app_bundle.pkl world.geojson theme.css ./
 COPY eda_decisions.json ./
+COPY chart_views.py ./
 
 EXPOSE 7860
 
