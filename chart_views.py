@@ -39,7 +39,7 @@ CELL_COLORS = [
 
 def canvas(title, wide=False):
     # Compact UI renditions keep publication typography without empty gutters.
-    fig, ax = plt.subplots(figsize=(7.0, 2.8) if wide else (3.5, 3.0))
+    fig, ax = plt.subplots(figsize=(5.5, 3.2) if wide else (3.5, 3.0))
     ax.set_title(title, loc="left", pad=10)
     ax.spines[["top", "right", "bottom", "left"]].set_visible(True)
     ax.tick_params(direction="out")
@@ -50,7 +50,7 @@ def canvas(title, wide=False):
 def finish(fig, caption):
     """Reserve a real caption region inside the image, outside the data axes."""
     wide = fig.get_figwidth() > 5
-    caption_lines = textwrap.fill(caption, width=112 if wide else 53)
+    caption_lines = textwrap.fill(caption, width=86 if wide else 53)
     lines = len(caption_lines.splitlines())
     footer = (lines * 10.4 + 7) / (72 * fig.get_figheight())
     fig.tight_layout(pad=0.65, rect=(0, footer, 1, 1))

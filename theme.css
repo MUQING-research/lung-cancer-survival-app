@@ -542,7 +542,7 @@ body { height: auto; min-height: 100vh; }
 .chart-toolbar .form-select { border-radius: 7px; }
 .chart-image { width: 100%; margin: 0 auto; padding: 0; }
 .chart-square { max-width: 460px; }
-.chart-wide { max-width: 940px; }
+.chart-wide { max-width: 720px; }
 .chart-image .shiny-html-output { width: 100%; }
 .chart-image img { display: block; width: 100% !important; height: auto !important; max-width: 100%; max-height: none !important; object-fit: contain; }
 .mobile-chart { display: none; }
@@ -619,6 +619,16 @@ body { height: auto; min-height: 100vh; }
   .tbl td, .tbl th, .prob-tbl td, .prob-tbl th { padding: 9px 7px; }
 }
 
+/* Restrained corners across chart, input and summary surfaces. */
+.hero-banner, .summary-tile, .input-panel, .card, .card-header,
+.chart-toolbar, .detail-panel, .metric-chip, .chip {
+  border-radius: 2px !important;
+}
+.input-panel .form-control, .input-panel .form-select,
+.chart-toolbar .form-select, .btn-primary, .nav-pills .nav-link {
+  border-radius: 3px !important;
+}
+
 /* Compact content rhythm: remove repeated summaries and unused figure gutters. */
 .dashboard-shell { padding-top: 20px; padding-bottom: 24px; }
 .hero-banner { display: grid; grid-template-columns: minmax(300px, .95fr) minmax(0, 1.8fr); align-items: center; gap: 22px; padding: 18px 20px; margin-bottom: 14px; }
@@ -649,6 +659,11 @@ body { height: auto; min-height: 100vh; }
 .prediction-results { gap: 10px; }
 .prediction-milestones { grid-column: 1 / -1; min-width: 0; }
 .prediction-milestones .infobar { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+@media (min-width: 1200px) {
+  .prediction-workspace { grid-template-columns: 330px minmax(0, 1fr) 190px; }
+  .prediction-milestones { grid-column: auto; }
+  .prediction-milestones .infobar { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+}
 .prediction-results > .detail-panel { margin: 0; }
 #pred_chips .chip-val { font-size: 1.5rem; line-height: 1.2; }
 #pred_chips .chip { padding: 14px 16px; }

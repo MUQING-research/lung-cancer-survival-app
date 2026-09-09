@@ -12,6 +12,17 @@ import chart_views as charts
 
 
 class ChartViewTests(unittest.TestCase):
+    def test_patient_curve_uses_balanced_desktop_aspect(self):
+        times = np.linspace(0, 72, 145)
+        for narrow, expected in ((False, (5.5, 3.2)), (True, (3.5, 3.0))):
+            fig = charts.survival_figure(times, np.exp(-times / 65),
+                                        np.exp(-times / 75), narrow=narrow)
+            try:
+                np.testing.assert_allclose(fig.get_size_inches(), expected)
+                self.assertEqual(tuple(fig.axes[0].get_xlim()), (0, 72))
+            finally:
+                plt.close(fig)
+
     def figures(self):
         data = vars(application)
         times = np.linspace(0, 72, 145)
