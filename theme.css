@@ -732,11 +732,15 @@ body { height: auto; min-height: 100vh; }
 .method-section { min-width: 0; }
 .method-section p { margin-bottom: 0; }
 .methods .card-body:has(> table) { overflow-x: auto; }
-.methods table { min-width: 520px; }
+.methods table { min-width: 0; }
+.methods table:has(th:nth-child(4)) { min-width: 520px; }
+.methods table:not(:has(th:nth-child(4))) { table-layout: fixed; }
+.methods table:not(:has(th:nth-child(4))) td { overflow-wrap: anywhere; }
+.methods table:not(:has(th:nth-child(3))) th:first-child { width: 52%; }
 .methods .detail-panel { margin-bottom: 14px; }
 .methods .card-body > p { color: var(--muted) !important; }
 @media (max-width: 600px) {
-  .methods .card-body:has(> table)::before {
+  .methods .card-body:has(> table th:nth-child(4))::before {
     content: "Swipe horizontally to view all columns";
     display: block; margin-bottom: 8px; font-size: .76rem; color: var(--muted);
   }
@@ -761,3 +765,42 @@ table:has(tbody td:nth-child(4).num) th:nth-child(4) { text-align: right; }
 table:has(tbody td:nth-child(5).num) th:nth-child(5) { text-align: right; }
 
 table:has(tbody td:nth-child(6).num) th:nth-child(6) { text-align: right; }
+
+/* Quiet header chrome and clear result hierarchy. Plot palettes stay unchanged. */
+.hero-banner { background: #FFFFFF !important; border-top: 3px solid var(--accent) !important; }
+.hero-banner::after { display: none; }
+.hero-banner .summary-grid { gap: 0; margin-bottom: 0; }
+.hero-banner .summary-tile {
+  background: transparent !important; border: 0 !important;
+  border-left: 1px solid var(--line) !important; padding: 8px 14px;
+}
+.hero-banner .summary-label { color: var(--muted); letter-spacing: .4px; font-weight: 600; }
+.hero-banner .summary-value { font-size: 1.4rem; font-weight: 700; }
+.hero-kicker { font-size: .65rem; letter-spacing: 1.1px; font-weight: 700; }
+.input-group-label { padding-top: 10px; border-top: 1px solid var(--line); }
+.input-panel > .input-group-label:first-of-type { border-top: 0; padding-top: 0; }
+.detail-panel { background: var(--surface-subtle); }
+.detail-panel[open] { background: #FFFFFF; }
+.detail-panel > summary:hover { color: var(--accent-ink); }
+.nav-tabs .nav-link.active { background: var(--accent-tint) !important; }
+.mc-cox, .mc-aft, .model-value { color: var(--ink) !important; }
+.model-value small { color: var(--ink-soft); }
+@media (max-width: 480px) {
+  .hero-banner .summary-tile { padding: 8px 10px; }
+  .hero-banner .summary-grid { gap: 8px 0; }
+  .hero-banner .summary-value { font-size: 1.25rem; }
+  .hero-banner .summary-detail { font-size: .74rem; }
+  .methods table:not(:has(th:nth-child(4))) th,
+  .methods table:not(:has(th:nth-child(4))) td { padding: 9px 6px; }
+}
+
+@media (max-width: 480px) {
+  .prediction-milestones .infobar { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .prediction-milestones .metric-chip {
+    display: grid; grid-template-columns: minmax(74px, .95fr) repeat(2, minmax(0, 1fr));
+    align-items: center; gap: 10px; padding: 12px !important;
+    border-top: 1px solid var(--line); border-left: 2px solid var(--accent);
+  }
+  .prediction-milestones .model-value { flex-direction: column; align-items: flex-start; gap: 3px; margin: 0; }
+  .prediction-milestones .mc-label { line-height: 1.5; }
+}
