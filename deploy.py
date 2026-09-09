@@ -1,38 +1,67 @@
-"""
-deploy.py -- Deploy survival app to shinyapps.io
-Usage: python deploy.py
-"""
-import os
+"""Validate the runtime package and deploy the existing shinyapps.io app."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.metadata
 import subprocess
 import sys
 from pathlib import Path
 
 ACCOUNT = "medictio"
-TITLE   = "nsclc-survival"
-DIR     = str(Path(__file__).parent)
-# Files/folders that are only needed for local development, HuggingFace, or
-# documentation — never required by the deployed Shiny runtime.
-EXCLUDE = [
-    "Dockerfile", "upload.py", "deploy.py", "README.md",
-    "generate_readme_figures.py",
-    "__pycache__", ".cache", ".git", ".github", "output", ".playwright-cli",
-    "rsconnect-python", "assets",
-]
-
-cmd = (
-    ["rsconnect", "deploy", "shiny", DIR, "--name", ACCOUNT, "--title", TITLE]
-    + [arg for f in EXCLUDE for arg in ("--exclude", f)]
+TITLE = "nsclc-survival"
+APP_ID = "17579074"
+ROOT = Path(__file__).resolve().parent
+RUNTIME_FILES = (
+    "app.py",
+    "survival_app.py",
+    "survival_core.py",
+    "tcga_luad_app_bundle.pkl",
+    "eda_decisions.json",
+    "theme.css",
+    "world.geojson",
+    "requirements.txt",
 )
 
-for variable in ("SUPABASE_URL", "SUPABASE_KEY", "IPINFO_TOKEN"):
-    if os.environ.get(variable):
-        cmd.extend(("--environment", variable))
 
-print(f"Deploying '{TITLE}' to shinyapps.io ({ACCOUNT})...")
-result = subprocess.run(cmd)
+def validate_package() -> list[str]:
+    """Require a complete package and the tested Python/dependency versions."""
+    missing = [name for name in RUNTIME_FILES if not (ROOT / name).is_file()]
+    if missing:
+        raise RuntimeError("Missing runtime files: " + ", ".join(missing))
+    if sys.version_info[:2] != (3, 13):
+        raise RuntimeError("Deploy with the tested Python 3.13 environment.")
+    for line in (ROOT / "requirements.txt").read_text().splitlines():
+        requirement = line.strip()
+        if not requirement or requirement.startswith("#"):
+            continue
+        name, expected = requirement.split("==", 1)
+        actual = importlib.metadata.version(name)
+        if actual != expected:
+            raise RuntimeError(f"{name}: expected {expected}, found {actual}")
+    return sorted(path.name for path in ROOT.iterdir() if path.name not in RUNTIME_FILES)
 
-if result.returncode == 0:
-    print(f"\nDone -- https://{ACCOUNT}.shinyapps.io/{TITLE}/")
-else:
-    print("\nDeployment failed.", file=sys.stderr)
-    sys.exit(result.returncode)
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="Validate without uploading.")
+    args = parser.parse_args()
+    excludes = validate_package()
+    print("Runtime files: " + ", ".join(RUNTIME_FILES), flush=True)
+    if args.check:
+        print("Deployment preflight passed.")
+        return 0
+    cmd = [
+        sys.executable, "-m", "rsconnect.main", "deploy", "shiny", str(ROOT),
+        "--name", ACCOUNT, "--title", TITLE, "--app-id", APP_ID,
+        "--python", sys.executable,
+    ]
+    for name in excludes:
+        cmd.extend(("--exclude", name))
+    # shinyapps.io does not support rsconnect --environment management.
+    print(f"Deploying https://{ACCOUNT}.shinyapps.io/{TITLE}/", flush=True)
+    return subprocess.run(cmd, cwd=ROOT, check=False).returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

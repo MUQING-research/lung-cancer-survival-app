@@ -5,3 +5,5 @@ rsconnect-python/
 .env
 .venv/
 venv/
+output/
+.playwright-cli/

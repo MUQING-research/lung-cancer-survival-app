@@ -1,0 +1,356 @@
+{
+  "variables": {
+    "age": {
+      "type": "continuous",
+      "unit": "years",
+      "missing_count_train": 21,
+      "missing_rate_train": 0.051597051597051594,
+      "missing_rate_by_event_train": {
+        "0": 0.0421455938697318,
+        "1": 0.0684931506849315
+      },
+      "missing_value_rule": "median",
+      "imputation_value": 66.61601642710473,
+      "transformation": "raw",
+      "functional_form": "spline",
+      "encoding": "continuous",
+      "reference_level": null,
+      "training_levels": null,
+      "unseen_category": "Map to training mode before encoding",
+      "centring_constant": null,
+      "cut_points": [
+        -37.01848049281314,
+        -11.84394250513347,
+        13.330595482546201,
+        38.50513347022587,
+        63.67967145790554,
+        88.85420944558521,
+        114.02874743326488,
+        139.20328542094455,
+        164.37782340862424
+      ],
+      "sparse_levels_train": {},
+      "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
+      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+    },
+    "stage": {
+      "type": "ordinal",
+      "unit": "category code",
+      "missing_count_train": 6,
+      "missing_rate_train": 0.014742014742014743,
+      "missing_rate_by_event_train": {
+        "0": 0.019157088122605363,
+        "1": 0.00684931506849315
+      },
+      "missing_value_rule": "mode",
+      "imputation_value": 1.0,
+      "transformation": "raw",
+      "functional_form": "dummy",
+      "encoding": "dummy, drop first",
+      "reference_level": 1.0,
+      "training_levels": [
+        1.0,
+        2.0,
+        3.0,
+        4.0
+      ],
+      "unseen_category": "Map to training mode before encoding",
+      "centring_constant": null,
+      "cut_points": null,
+      "sparse_levels_train": {},
+      "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
+      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+    },
+    "t_stage": {
+      "type": "ordinal",
+      "unit": "category code",
+      "missing_count_train": 3,
+      "missing_rate_train": 0.007371007371007371,
+      "missing_rate_by_event_train": {
+        "0": 0.0038314176245210726,
+        "1": 0.0136986301369863
+      },
+      "missing_value_rule": "mode",
+      "imputation_value": 2.0,
+      "transformation": "raw",
+      "functional_form": "linear",
+      "encoding": "integer code",
+      "reference_level": null,
+      "training_levels": null,
+      "unseen_category": "Map to training mode before encoding",
+      "centring_constant": null,
+      "cut_points": null,
+      "sparse_levels_train": {},
+      "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
+      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+    },
+    "n_stage": {
+      "type": "ordinal",
+      "unit": "category code",
+      "missing_count_train": 13,
+      "missing_rate_train": 0.03194103194103194,
+      "missing_rate_by_event_train": {
+        "0": 0.034482758620689655,
+        "1": 0.0273972602739726
+      },
+      "missing_value_rule": "mode",
+      "imputation_value": 0.0,
+      "transformation": "raw",
+      "functional_form": "dummy",
+      "encoding": "dummy, drop first",
+      "reference_level": 0.0,
+      "training_levels": [
+        0.0,
+        1.0,
+        2.0,
+        3.0
+      ],
+      "unseen_category": "Map to training mode before encoding",
+      "centring_constant": null,
+      "cut_points": null,
+      "sparse_levels_train": {
+        "3.0": 2
+      },
+      "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
+      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+    },
+    "m_stage": {
+      "type": "binary",
+      "unit": "category code",
+      "missing_count_train": 118,
+      "missing_rate_train": 0.28992628992628994,
+      "missing_rate_by_event_train": {
+        "0": 0.3371647509578544,
+        "1": 0.2054794520547945
+      },
+      "missing_value_rule": "mode",
+      "imputation_value": 0.0,
+      "transformation": "raw",
+      "functional_form": "linear",
+      "encoding": "integer code",
+      "reference_level": null,
+      "training_levels": null,
+      "unseen_category": "Map to training mode before encoding",
+      "centring_constant": null,
+      "cut_points": null,
+      "sparse_levels_train": {},
+      "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
+      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+    }
+  },
+  "provenance": {
+    "seed": 42,
+    "split": "80/20 event-stratified",
+    "n_train": 407,
+    "n_test": 102,
+    "train_events": 146,
+    "test_events": 37,
+    "cleaning": {
+      "source_rows": 585,
+      "retained_rows": 509,
+      "excluded": {
+        "duplicate_case": 0,
+        "unknown_vital_status": 63,
+        "invalid_survival_time": 13
+      }
+    },
+    "source_sha256": "0c86f8cd3b01f23adfedbbf0fdd16f6c2b161195ad0c34986aa61c413bbfeaf2",
+    "cox_cv": "Five event-stratified folds; imputation, functional screening, spline knots and dummy levels refitted in each training fold",
+    "evaluation_times": [
+      12.0,
+      24.0,
+      36.0,
+      48.0,
+      60.0
+    ],
+    "versions": {
+      "lifelines": "0.30.3",
+      "scikit_survival": "0.25.0",
+      "scikit_learn": "1.7.2"
+    }
+  },
+  "diagnostics": {
+    "scope": "Training data only; survival-specific diagnostics, not logistic GAM diagnostics.",
+    "model_specification": "Cox partial-likelihood LRT screens functional forms at alpha=0.10; refitted separately within CV folds.",
+    "age_distribution": {
+      "shapiro_p": 0.006304537911373909,
+      "skewness": -0.2770859320667231,
+      "kurtosis": -0.32737724356190157
+    },
+    "missing_per_row_train": {
+      "0": 263,
+      "1": 129,
+      "2": 13,
+      "3": 2
+    },
+    "identical_feature_outcome_rows": 0,
+    "duplicates_policy": "Deduplicate case identifiers; retain different cases sharing values.",
+    "cox_cv": [
+      {
+        "penalizer": 0.001,
+        "fold_scores": [
+          0.6013771996939556,
+          0.6648096564531105,
+          0.6892488954344624,
+          0.6078280890253261,
+          0.6268718801996672
+        ],
+        "failures": []
+      },
+      {
+        "penalizer": 0.01,
+        "fold_scores": [
+          0.6006120887528692,
+          0.6620241411327762,
+          0.6980854197349042,
+          0.6216423637759018,
+          0.6368552412645591
+        ],
+        "failures": []
+      },
+      {
+        "penalizer": 0.05,
+        "fold_scores": [
+          0.5983167559296098,
+          0.6555246053853296,
+          0.7032400589101621,
+          0.6201074443591711,
+          0.6410149750415973
+        ],
+        "failures": []
+      },
+      {
+        "penalizer": 0.1,
+        "fold_scores": [
+          0.5975516449885233,
+          0.6415970287836583,
+          0.6980854197349042,
+          0.6239447429009977,
+          0.6435108153078203
+        ],
+        "failures": []
+      },
+      {
+        "penalizer": 0.5,
+        "fold_scores": [
+          0.6044376434583014,
+          0.6304549675023212,
+          0.6892488954344624,
+          0.6262471220260937,
+          0.6526622296173045
+        ],
+        "failures": []
+      },
+      {
+        "penalizer": 1.0,
+        "fold_scores": [
+          0.6082631981637338,
+          0.6295264623955432,
+          0.6892488954344624,
+          0.6316193399846508,
+          0.6493344425956739
+        ],
+        "failures": []
+      },
+      {
+        "penalizer": 5.0,
+        "fold_scores": [
+          0.6090283091048202,
+          0.6239554317548747,
+          0.6848306332842415,
+          0.6316193399846508,
+          0.6435108153078203
+        ],
+        "failures": []
+      }
+    ],
+    "functional_form_checks": [
+      {
+        "variable": "age",
+        "method": "Cox linear vs 3-knot cubic spline",
+        "lr": 9.983695780274047,
+        "df": 3,
+        "p": 0.01870523693984714
+      },
+      {
+        "variable": "stage",
+        "method": "Cox integer vs dummy coding",
+        "lr": 7.859684755571152,
+        "df": 2,
+        "p": 0.01964676907626654
+      },
+      {
+        "variable": "t_stage",
+        "method": "Cox integer vs dummy coding",
+        "lr": 2.2155569057179036,
+        "df": 2,
+        "p": 0.33029190567702477
+      },
+      {
+        "variable": "n_stage",
+        "method": "Cox integer vs dummy coding",
+        "lr": 8.914037321098476,
+        "df": 2,
+        "p": 0.011596886053753079
+      }
+    ],
+    "limitations": [
+      "Functional-form screening is exploratory; small categories can make likelihood-ratio tests unstable.",
+      "Overall AJCC stage overlaps biologically with T, N and M; regularization does not remove this redundancy.",
+      "Missing M stage is frequent; mode imputation can underrepresent uncertainty.",
+      "Internal random split evaluation does not establish external clinical validity.",
+      "Median observed follow-up is a descriptive observed-time median, not reverse Kaplan-Meier follow-up."
+    ],
+    "proportional_hazards": {
+      "age_spline_0": 0.4527452297749721,
+      "age_spline_1": 0.6048121759246063,
+      "age_spline_2": 0.9382953890884347,
+      "age_spline_3": 0.7815864697153289,
+      "m_stage": 0.9011440432419383,
+      "n_stage_1": 0.21053828203918296,
+      "n_stage_2": 0.38055668078433047,
+      "n_stage_3": 0.9453575525668828,
+      "stage_2": 0.11392579297057191,
+      "stage_3": 0.1269727000517383,
+      "stage_4": 0.9004748550288749,
+      "t_stage": 0.5736367862501635
+    },
+    "correlations_spearman": {
+      "age": {
+        "age": 1.0,
+        "stage": -0.05373780922219741,
+        "t_stage": 0.0011904500922327885,
+        "n_stage": -0.0403181316142544,
+        "m_stage": -0.06554478766260884
+      },
+      "stage": {
+        "age": -0.05373780922219741,
+        "stage": 1.0,
+        "t_stage": 0.42051696372393393,
+        "n_stage": 0.7525733107674731,
+        "m_stage": 0.3847823138955137
+      },
+      "t_stage": {
+        "age": 0.0011904500922327885,
+        "stage": 0.42051696372393393,
+        "t_stage": 1.0,
+        "n_stage": 0.20453986272658278,
+        "m_stage": 0.06371667227117743
+      },
+      "n_stage": {
+        "age": -0.0403181316142544,
+        "stage": 0.7525733107674731,
+        "t_stage": 0.20453986272658278,
+        "n_stage": 1.0,
+        "m_stage": -0.0066919885782319236
+      },
+      "m_stage": {
+        "age": -0.06554478766260884,
+        "stage": 0.3847823138955137,
+        "t_stage": 0.06371667227117743,
+        "n_stage": -0.0066919885782319236,
+        "m_stage": 1.0
+      }
+    }
+  }
+}

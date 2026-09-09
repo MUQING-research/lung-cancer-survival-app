@@ -37,13 +37,14 @@ TCGA-LUAD clinical survival data (n = 509)
              80/20 event-stratified split
                 random seed = 42
                          |
-     Training-set median imputation for five features
+      Age median and stage-mode imputation
+       Age spline, stage/N dummy encoding
                          |
           +--------------+--------------+
           |                             |
    L2-regularized Cox PH          Parametric AFT
   5-fold CV penalizer grid       family selected by AIC
-  selected penalizer = 0.001     Log-Logistic selected
+  selected penalizer = 0.01      Log-Logistic selected
           |                             |
           +--------------+--------------+
                          |
@@ -53,7 +54,7 @@ TCGA-LUAD clinical survival data (n = 509)
        Saved bundle -> Shiny survival dashboard
 ```
 
-The fixed split contains 407 training patients and 102 held-out test patients. Imputation, Cox penalizer tuning, parametric-family selection, and model fitting use the training split only.
+The fixed split contains 407 training patients and 102 held-out test patients. Imputation, functional-form screening, spline construction, Cox penalizer tuning, parametric-family selection, and model fitting use the training split only. Preprocessing and functional-form decisions are refitted inside every Cox cross-validation training fold.
 
 ### Predictors
 
@@ -65,7 +66,7 @@ The current `tcga_luad_app_bundle.pkl` uses five clinical predictors:
 4. pathologic N category; and
 5. pathologic M category.
 
-Missing predictor values are imputed with training-set medians. Users must preserve the coding and units expected by the application.
+Missing age is imputed with the training median; missing stage categories use training modes. Training-only Cox partial-likelihood LRTs select a 3-knot cubic spline for age and reference-level dummy coding for overall stage and N category. T category remains integer-coded and M remains binary. The fitted transformations and reference categories are saved in `eda_decisions.json`. Users must preserve the coding and units expected by the application.
 
 ## Outcome and prediction semantics
 
@@ -84,10 +85,12 @@ The following values describe the checked-in bundle and its fixed 80/20 split. T
 
 | Model | C-index train | C-index test | Test 95% bootstrap CI | IBS train | IBS test | Mean test AUC |
 |---|---:|---:|---:|---:|---:|---:|
-| Cox PH | 0.670 | 0.697 | 0.611-0.764 | 0.1911 | 0.1928 | 0.748 |
-| Log-Logistic AFT | 0.669 | 0.709 | 0.613-0.792 | 0.1922 | 0.1898 | 0.758 |
+| Cox PH | 0.679 | 0.691 | 0.602-0.768 | 0.1863 | 0.1903 | 0.728 |
+| Log-Logistic AFT | 0.679 | 0.689 | 0.602-0.764 | 0.1871 | 0.1898 | 0.729 |
 
 Test C-index confidence intervals use 150 bootstrap resamples. Integrated Brier Score and cumulative/dynamic AUC are evaluated at 12, 24, 36, 48, and 60 months after restricting evaluation times to the observed support of both splits.
+
+For test IPCW metrics, follow-up beyond the last supported evaluation horizon is administratively censored just after that horizon. This preserves earlier case/control status and prevents irrelevant late events from exceeding training censoring support. The original outcomes are retained for C-index and bootstrap intervals. Runtime and model checks can be reproduced with `python -m unittest validate_model -v`; the source-cache check is skipped when raw data is intentionally absent.
 
 ### Model evaluation figures
 
@@ -107,10 +110,10 @@ The training-set Kaplan-Meier curve is compared with four marginal parametric su
 
 ## Run locally
 
-Python 3.11 or newer is recommended.
+Use Python 3.13 (the bundles and deployment use Python 3.13.9).
 
 ```bash
-git clone https://github.com/MUQING-create/lung-cancer-survival-app.git
+git clone https://github.com/MUQING-research/lung-cancer-survival-app.git
 cd lung-cancer-survival-app
 
 python -m venv .venv
@@ -155,7 +158,9 @@ python -m pip install rsconnect-python
 python deploy.py
 ```
 
-Configure `rsconnect` credentials before running the helper. It deploys the application as `medictio/nsclc-survival` and includes the precomputed model bundle.
+Configure `rsconnect` credentials before running the helper from the Python 3.13 environment matching `requirements.txt`. Run `python deploy.py --check` for a local preflight. The helper updates the existing `medictio/nsclc-survival` app, checks pinned package versions, and uploads only the runtime file allowlist, including the precomputed model bundle and stylesheet.
+
+The pinned `scikit-survival==0.25.0` supports `scikit-learn==1.7.2`; this compatibility is documented in the [versioned installation guide](https://scikit-survival.readthedocs.io/en/v0.25.0/install.html).
 
 For another hosting workflow, package at least:
 
@@ -163,14 +168,18 @@ For another hosting workflow, package at least:
 - `survival_app.py`
 - `survival_core.py`
 - `tcga_luad_app_bundle.pkl`
+- `eda_decisions.json`
 - `requirements.txt`
+- `theme.css`
 - `world.geojson` if the visitor map is enabled
 
 Do not replace the deployment bundle with raw patient-level feature tables.
 
 ## Optional visitor analytics
 
-The dashboard can optionally render aggregate visit statistics through Supabase and locate public IP addresses through IPinfo or the `ipwho.is` fallback. Analytics are disabled unless both `SUPABASE_URL` and `SUPABASE_KEY` are configured. When enabled, hosted visitors should be informed that country, city, latitude, and longitude may be recorded. Prediction inputs are not stored.
+The dashboard can optionally render aggregate visit statistics through Supabase and locate public IP addresses through IPinfo or the `ipwho.is` fallback. Remote persistence requires both `SUPABASE_URL` and `SUPABASE_KEY`; without them, the app uses a bounded process-local visit list that resets on restart. Hosted visitors should be informed when location lookup is enabled. Prediction inputs are not stored.
+
+The shinyapps.io deployment helper does not forward environment variables: that platform does not support `rsconnect --environment` management. Container hosts can inject the variables below. See the [Posit deployment documentation](https://docs.posit.co/rsconnect-python/deploying/).
 
 | Environment variable | Purpose |
 |---|---|
@@ -187,6 +196,10 @@ The dashboard can optionally render aggregate visit statistics through Supabase 
 |-- survival_core.py               # Survival models and evaluation helpers
 |-- generate_readme_figures.py     # Reproducible README figure generator
 |-- tcga_luad_app_bundle.pkl       # Sanitized model and evaluation bundle
+|-- eda_decisions.json             # Training-only preprocessing decisions and provenance
+|-- bundle_survival.py             # Canonical offline rebuild entry point
+|-- validate_model.py              # Model, bundle, and IPCW regression checks
+|-- theme.css                      # Active application stylesheet
 |-- assets/                        # App preview and model figures for this README
 |-- requirements.txt               # Runtime dependencies
 |-- deploy.py                      # shinyapps.io deployment helper
@@ -202,7 +215,7 @@ The dashboard can optionally render aggregate visit statistics through Supabase 
 - Only five routinely recorded clinical predictors are used; treatment, molecular, imaging, comorbidity, and performance-status information are not included.
 - Proportional-hazards assumptions and parametric extrapolation assumptions require further validation before any clinical use.
 - The single fixed split does not quantify the full variability of model development and selection.
-- Missing values are median-imputed, which does not capture uncertainty from missing clinical information.
+- Median/mode imputation does not capture uncertainty from missing clinical information, particularly the frequently missing M category.
 - Predictions reflect the TCGA-LUAD cohort and should not be generalized to other lung-cancer histologies or care settings without validation.
 
 ## Data attribution

@@ -34,6 +34,7 @@ import tempfile
 import warnings
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 # ── ASCII temp dir (CJK Windows usernames crash joblib) ─────────────────────
@@ -59,12 +60,16 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")  # suppress OMP duplicate-
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
+from scipy import stats
 import sklearn
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, SplineTransformer
 from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.base import BaseEstimator, TransformerMixin
 import joblib
 
 import lifelines
+import autograd.numpy as anp
+from lifelines.fitters import ParametricRegressionFitter
 from lifelines import (
     CoxPHFitter, KaplanMeierFitter,
     WeibullAFTFitter, LogNormalAFTFitter, LogLogisticAFTFitter,
@@ -366,6 +371,193 @@ def PROC_COLS(df: pd.DataFrame) -> list[str]:
 
 # ── 4. Distribution testing (univariate; guides AFT family choice) ───────────
 
+class ClinicalImputer(BaseEstimator, TransformerMixin):
+    """Median for age; observed-category mode for ordered and binary stages."""
+
+    def fit(self, X, y=None):
+        self.feature_names_in_ = np.asarray(X.columns, dtype=object)
+        values = []
+        for col in X.columns:
+            observed = X[col].dropna()
+            if observed.empty:
+                raise ValueError(f"Cannot impute entirely missing training feature: {col}")
+            values.append(observed.median() if col == "age" else observed.mode().iloc[0])
+        self.statistics_ = np.asarray(values, dtype=float)
+        return self
+
+    def transform(self, X):
+        if list(X.columns) != list(self.feature_names_in_):
+            raise ValueError("Clinical feature columns differ from the fitted schema.")
+        return X.astype(float).fillna(dict(zip(self.feature_names_in_, self.statistics_))).to_numpy()
+
+
+class ClinicalPreprocessor(BaseEstimator, TransformerMixin):
+    """Training-only imputation and survival-appropriate functional screening."""
+
+    def fit(self, X, y):
+        self.imputer_ = ClinicalImputer().fit(X)
+        self.feature_names_in_ = self.imputer_.feature_names_in_
+        self.statistics_ = self.imputer_.statistics_
+        values = pd.DataFrame(self.imputer_.transform(X), columns=X.columns, index=X.index)
+        self.forms_, self.categories_, self.form_checks_ = {}, {}, []
+        for name in X.columns:
+            self.forms_[name] = "linear"
+            if name == "m_stage":
+                continue
+            base = values[[name]].copy()
+            base[TIME_COL], base[EVENT_COL] = y[TIME_COL].to_numpy(), y[EVENT_COL].to_numpy()
+            try:
+                linear = CoxPHFitter().fit(base, TIME_COL, EVENT_COL)
+                if name == "age":
+                    spline = SplineTransformer(n_knots=3, degree=3, include_bias=False).fit(values[[name]])
+                    basis = spline.transform(values[[name]])
+                    richer = pd.DataFrame(basis, index=X.index, columns=[f"age_spline_{j}" for j in range(basis.shape[1])])
+                    label = "Cox linear vs 3-knot cubic spline"
+                else:
+                    richer = pd.get_dummies(values[name].astype(int), prefix=name, drop_first=True, dtype=float)
+                    label = "Cox integer vs dummy coding"
+                richer[TIME_COL], richer[EVENT_COL] = base[TIME_COL], base[EVENT_COL]
+                flexible = CoxPHFitter().fit(richer, TIME_COL, EVENT_COL)
+                degrees = len(flexible.params_) - len(linear.params_)
+                lr = max(0.0, 2.0 * (flexible.log_likelihood_ - linear.log_likelihood_))
+                p_value = float(stats.chi2.sf(lr, degrees)) if degrees > 0 else None
+                self.form_checks_.append({"variable": name, "method": label, "lr": float(lr), "df": degrees, "p": p_value})
+                if p_value is not None and p_value < 0.10:
+                    if name == "age":
+                        self.forms_[name] = "spline"
+                        self.age_spline_ = spline
+                    else:
+                        self.forms_[name] = "dummy"
+                        self.categories_[name] = sorted(values[name].unique().tolist())
+            except (ValueError, lifelines.exceptions.ConvergenceError, np.linalg.LinAlgError) as exc:
+                self.form_checks_.append({"variable": name, "error": str(exc), "fallback": "linear"})
+        self.output_columns_ = self.transform(X).columns.tolist()
+        return self
+
+    def transform(self, X):
+        values = pd.DataFrame(self.imputer_.transform(X), columns=X.columns, index=X.index)
+        result = pd.DataFrame(index=X.index)
+        for name in X.columns:
+            form = self.forms_[name]
+            if form == "spline":
+                basis = self.age_spline_.transform(values[[name]])
+                for j in range(basis.shape[1]):
+                    result[f"age_spline_{j}"] = basis[:, j]
+            elif form == "dummy":
+                levels = self.categories_[name]
+                replacement = self.statistics_[list(self.feature_names_in_).index(name)]
+                coded = values[name].where(values[name].isin(levels), replacement)
+                for level in levels[1:]:
+                    result[f"{name}_{int(level)}"] = (coded == level).astype(float)
+            else:
+                result[name] = values[name]
+        return result
+
+
+def validate_clinical_inputs(values):
+    """Validate server-side values before invoking either prediction model."""
+    result = {}
+    levels = {"stage": {1, 2, 3, 4}, "t_stage": {1, 2, 3, 4}, "n_stage": {0, 1, 2, 3}, "m_stage": {0, 1}}
+    for key in ("age", "stage", "t_stage", "n_stage", "m_stage"):
+        try:
+            result[key] = float(values[key])
+        except (ValueError, TypeError, KeyError):
+            raise ValueError(f"Enter a valid value for {key.replace('_', ' ')}.") from None
+        if not np.isfinite(result[key]):
+            raise ValueError(f"Enter a finite value for {key.replace('_', ' ')}.")
+        if key == "age" and not 18 <= result[key] <= 100:
+            raise ValueError("Age must be between 18 and 100 years.")
+        if key in levels and result[key] not in levels[key]:
+            raise ValueError(f"Select a valid {key.replace('_', ' ')} category.")
+    return result
+
+
+def audit_clinical_preprocessing(df_all, df_train, features, cox, imputer):
+    """Record training-only diagnostics for an existing survival specification.
+
+    Logistic GAM tests do not accommodate censored survival outcomes. These
+    checks instead use Cox partial likelihood and Schoenfeld residual tests.
+    They document limitations of the prespecified deployable model and do not
+    tune the model against the held-out cohort.
+    """
+    from lifelines.statistics import proportional_hazard_test
+    decisions = {}
+    raw_names = list(imputer.feature_names_in_)
+    for i, name in enumerate(raw_names):
+        train = df_train[name]
+        kind = "continuous" if name == "age" else ("binary" if name == "m_stage" else "ordinal")
+        decisions[name] = {
+            "type": kind, "unit": "years" if name == "age" else "category code",
+            "missing_count_train": int(train.isna().sum()), "missing_rate_train": float(train.isna().mean()),
+            "missing_rate_by_event_train": {str(k): float(v) for k, v in df_train.groupby(EVENT_COL)[name].apply(lambda x: x.isna().mean()).items()},
+            "missing_value_rule": "median" if name == "age" else "mode",
+            "imputation_value": float(imputer.statistics_[i]),
+            "transformation": "raw", "functional_form": imputer.forms_[name],
+            "encoding": "dummy, drop first" if imputer.forms_[name] == "dummy" else ("continuous" if name == "age" else "integer code"),
+            "reference_level": imputer.categories_.get(name, [None])[0],
+            "training_levels": imputer.categories_.get(name),
+            "unseen_category": "Map to training mode before encoding",
+            "centring_constant": None,
+            "cut_points": imputer.age_spline_.bsplines_[0].t.tolist() if name == "age" and imputer.forms_[name] == "spline" else None,
+            "sparse_levels_train": {str(k): int(v) for k, v in train.value_counts().items() if v < 10} if name != "age" else {},
+            "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
+            "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation.",
+        }
+    age = df_train["age"].dropna().to_numpy()
+    diagnostics = {
+        "scope": "Training data only; survival-specific diagnostics, not logistic GAM diagnostics.",
+        "model_specification": "Cox partial-likelihood LRT screens functional forms at alpha=0.10; refitted separately within CV folds.",
+        "age_distribution": {"shapiro_p": float(stats.shapiro(age).pvalue), "skewness": float(stats.skew(age)), "kurtosis": float(stats.kurtosis(age))},
+        "missing_per_row_train": {str(k): int(v) for k, v in df_train[raw_names].isna().sum(axis=1).value_counts().items()},
+        "identical_feature_outcome_rows": int(df_all.drop(columns=["case_id"], errors="ignore").duplicated().sum()),
+        "duplicates_policy": "Deduplicate case identifiers; retain different cases sharing values.",
+        "cox_cv": cox._cv_diagnostics,
+        "functional_form_checks": imputer.form_checks_,
+        "limitations": [
+            "Functional-form screening is exploratory; small categories can make likelihood-ratio tests unstable.",
+            "Overall AJCC stage overlaps biologically with T, N and M; regularization does not remove this redundancy.",
+            "Missing M stage is frequent; mode imputation can underrepresent uncertainty.",
+            "Internal random split evaluation does not establish external clinical validity.",
+            "Median observed follow-up is a descriptive observed-time median, not reverse Kaplan-Meier follow-up.",
+        ],
+    }
+    fit_frame = features.copy()
+    fit_frame[TIME_COL] = df_train[TIME_COL].to_numpy()
+    fit_frame[EVENT_COL] = df_train[EVENT_COL].to_numpy()
+    try:
+        ph = proportional_hazard_test(cox, fit_frame, time_transform="rank").summary
+        diagnostics["proportional_hazards"] = {str(k): float(v) for k, v in ph["p"].items()}
+    except (ValueError, np.linalg.LinAlgError) as exc:
+        diagnostics["proportional_hazards_error"] = str(exc)
+    imputed_raw = pd.DataFrame(imputer.imputer_.transform(df_train[raw_names]), columns=raw_names)
+    diagnostics["correlations_spearman"] = imputed_raw.corr(method="spearman").to_dict()
+    return decisions, diagnostics
+
+
+class ExponentialAFTFitter(ParametricRegressionFitter):
+    """Exponential AFT regression with fixed Weibull shape of exactly one."""
+
+    _fitted_parameter_names = ["lambda_"]
+
+    def _cumulative_hazard(self, params, T, Xs):
+        return T / anp.exp(anp.dot(Xs["lambda_"], params["lambda_"]))
+
+    def fit(self, df, duration_col, event_col=None, **kwargs):
+        features = [c for c in df.columns if c not in (duration_col, event_col)]
+        return super().fit(
+            df, duration_col, event_col,
+            regressors={"lambda_": "1 + " + " + ".join(features)}, **kwargs,
+        )
+
+    def predict_percentile(self, df, *, p=0.5, conditional_after=None):
+        if not 0 < p < 1:
+            raise ValueError("Survival percentile must be strictly between zero and one.")
+        unit_hazard = self.predict_cumulative_hazard(df, times=[1.0]).iloc[0]
+        return -np.log(p) / unit_hazard
+
+    def predict_expectation(self, df):
+        return 1.0 / self.predict_cumulative_hazard(df, times=[1.0]).iloc[0]
+
 _UNIVAR_FITTERS = {
     "Weibull":     WeibullFitter,
     "Log-Normal":  LogNormalFitter,
@@ -377,7 +569,7 @@ _AFT_CLASSES = {
     "Weibull":     WeibullAFTFitter,
     "Log-Normal":  LogNormalAFTFitter,
     "Log-Logistic":LogLogisticAFTFitter,
-    "Exponential": WeibullAFTFitter,   # exponential is Weibull with shape=1
+    "Exponential": ExponentialAFTFitter,
 }
 
 def test_distributions(df: pd.DataFrame) -> dict:
@@ -399,8 +591,8 @@ def test_distributions(df: pd.DataFrame) -> dict:
         f.fit(df[TIME_COL], event_observed=df[EVENT_COL], label=name)
         fitters[name] = f
         rows.append({"Distribution": name,
-                      "AIC": round(f.AIC_, 2),
-                      "BIC": round(f.BIC_, 2),
+                      "AIC": float(f.AIC_),
+                      "BIC": float(f.BIC_),
                       "Median (months)": round(float(f.median_survival_time_), 1)})
 
     table = pd.DataFrame(rows).sort_values("AIC").reset_index(drop=True)
@@ -412,48 +604,72 @@ def test_distributions(df: pd.DataFrame) -> dict:
 # ── 5a. Cox Proportional Hazards (lifelines, L2-regularised) ─────────────────
 
 def tune_cox_penalizer(df_train: pd.DataFrame, n_folds: int = 5,
-                        feat_df: pd.DataFrame = None) -> float:
-    """Grid-search L2 penaliser via k-fold concordance index."""
+                        feat_df: pd.DataFrame = None,
+                        raw_feat_df: pd.DataFrame = None,
+                        diagnostics: list | None = None) -> float:
+    """Tune L2 penalty; refit clinical imputation inside each training fold."""
     if feat_df is None:
         feat_df = preprocess(df_train)
     df_tr = feat_df.copy()
     df_tr[TIME_COL]  = df_train[TIME_COL].values
     df_tr[EVENT_COL] = df_train[EVENT_COL].values
 
-    best_c, best_pen = -1.0, 0.1
+    folds = []
+    kf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=SEED)
+    for tr_idx, va_idx in kf.split(df_tr, df_train[EVENT_COL].values):
+        fold_tr, fold_va = df_tr.iloc[tr_idx].copy(), df_tr.iloc[va_idx].copy()
+        if raw_feat_df is not None:
+            imputer = ClinicalPreprocessor().fit(raw_feat_df.iloc[tr_idx], df_train.iloc[tr_idx])
+            fold_tr = imputer.transform(raw_feat_df.iloc[tr_idx])
+            fold_va = imputer.transform(raw_feat_df.iloc[va_idx])
+            for frame, indices in ((fold_tr, tr_idx), (fold_va, va_idx)):
+                frame[TIME_COL] = df_train.iloc[indices][TIME_COL].to_numpy()
+                frame[EVENT_COL] = df_train.iloc[indices][EVENT_COL].to_numpy()
+        folds.append((fold_tr, fold_va))
+
+    best_c, best_pen = -1.0, None
     for pen in [0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]:
         scores = []
-        kf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=SEED)
-        for tr_idx, va_idx in kf.split(df_tr, df_train[EVENT_COL].values):
+        failures = []
+        for fold_tr, fold_va in folds:
             try:
                 m = CoxPHFitter(penalizer=pen, l1_ratio=0.0)
-                m.fit(df_tr.iloc[tr_idx], duration_col=TIME_COL, event_col=EVENT_COL)
+                m.fit(fold_tr, duration_col=TIME_COL, event_col=EVENT_COL)
                 scores.append(
                     m.score(
-                        df_tr.iloc[va_idx],
+                        fold_va,
                         scoring_method="concordance_index",
                     )
                 )
-            except Exception:
-                pass
-        if scores and np.mean(scores) > best_c:
+            except (ValueError, lifelines.exceptions.ConvergenceError) as exc:
+                failures.append(str(exc))
+        if diagnostics is not None:
+            diagnostics.append({"penalizer": pen, "fold_scores": scores, "failures": failures})
+        if len(scores) == n_folds and np.mean(scores) > best_c:
             best_c, best_pen = np.mean(scores), pen
+    if best_pen is None:
+        raise RuntimeError("No Cox penalizer completed every CV fold successfully.")
     return best_pen
 
 
 def build_cox(df_train: pd.DataFrame, penalizer: Optional[float] = None,
-              feat_df: pd.DataFrame = None) -> CoxPHFitter:
+              feat_df: pd.DataFrame = None,
+              raw_feat_df: pd.DataFrame = None) -> CoxPHFitter:
     """Fit L2-regularised Cox PH on preprocessed features."""
     if feat_df is None:
         feat_df = preprocess(df_train)
+    diagnostics = []
     if penalizer is None:
-        penalizer = tune_cox_penalizer(df_train, feat_df=feat_df)
+        penalizer = tune_cox_penalizer(
+            df_train, feat_df=feat_df, raw_feat_df=raw_feat_df, diagnostics=diagnostics,
+        )
     df_fit = feat_df.copy()
     df_fit[TIME_COL]  = df_train[TIME_COL].values
     df_fit[EVENT_COL] = df_train[EVENT_COL].values
     cph = CoxPHFitter(penalizer=penalizer, l1_ratio=0.0)
     cph.fit(df_fit, duration_col=TIME_COL, event_col=EVENT_COL)
     cph._penalizer_used = penalizer
+    cph._cv_diagnostics = diagnostics
     return cph
 
 
@@ -738,11 +954,27 @@ def _surv_matrix_deepsurv(wrapper: DeepSurvWrapper, feat_df: pd.DataFrame,
 
 def _clip_times(times: np.ndarray, y_train, y_test) -> np.ndarray:
     """Keep only times strictly inside the observed range of both splits."""
-    # sksurv structured arrays use field names set at creation time
-    t_field = TIME_COL
-    t_lo = max(y_train[t_field].min(), y_test[t_field].min()) + 0.5
-    t_hi = min(y_train[t_field].max(), y_test[t_field].max()) - 0.5
+    times = np.unique(np.asarray(times, dtype=float))
+    t_lo = max(y_train[TIME_COL].min(), y_test[TIME_COL].min())
+    t_hi = min(y_train[TIME_COL].max(), y_test[TIME_COL].max())
     return times[(times > t_lo) & (times < t_hi)]
+
+
+def administrative_censor(y, times):
+    """Censor beyond the evaluation horizon without changing earlier outcomes.
+
+    sksurv estimates IPCW for observed event times, including events later than
+    every requested horizon. Capping follow-up just after the final horizon
+    prevents irrelevant late events from exceeding training censoring support.
+    """
+    if len(times) == 0:
+        raise ValueError("No evaluation times lie inside both follow-up ranges.")
+    tau = np.nextafter(float(max(times)), np.inf)
+    result = y.copy()
+    beyond = result[TIME_COL] > tau
+    result[EVENT_COL][beyond] = False
+    result[TIME_COL][beyond] = tau
+    return result
 
 
 def evaluate(model, model_type: str,
@@ -762,6 +994,9 @@ def evaluate(model, model_type: str,
     y_train, y_test : sksurv structured arrays (field names = TIME_COL / EVENT_COL)
     """
     times = _clip_times(times, y_train, y_test)
+    if len(times) < 2:
+        raise ValueError("At least two supported horizons are required for IBS.")
+    y_ipcw = administrative_censor(y_test, times)
     e_te  = y_test[EVENT_COL].astype(bool)
     t_te  = y_test[TIME_COL].astype(float)
 
@@ -809,19 +1044,22 @@ def evaluate(model, model_type: str,
     ci_lo, ci_hi = np.percentile(boot_c, [2.5, 97.5]) if boot_c else (np.nan, np.nan)
 
     # ── Integrated Brier Score ───────────────────────────────────────────────
+    metric_errors = {}
     try:
-        ibs = float(integrated_brier_score(y_train, y_test, surv_mat, times))
-    except Exception:
+        ibs = float(integrated_brier_score(y_train, y_ipcw, surv_mat, times))
+    except ValueError as exc:
         ibs = np.nan
+        metric_errors["ibs"] = str(exc)
 
     # ── Time-dependent AUC ──────────────────────────────────────────────────
     try:
-        auc_vals, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk, times)
+        auc_vals, mean_auc = cumulative_dynamic_auc(y_train, y_ipcw, risk, times)
         auc_vals  = auc_vals.tolist()
         mean_auc  = float(mean_auc)
-    except Exception:
+    except ValueError as exc:
         auc_vals  = [np.nan] * len(times)
         mean_auc  = np.nan
+        metric_errors["auc"] = str(exc)
 
     return dict(
         c_index    = float(c_idx),
@@ -833,6 +1071,8 @@ def evaluate(model, model_type: str,
         surv_mat   = surv_mat,
         risk       = risk,
         times      = times.tolist(),
+        metric_errors = metric_errors,
+        bootstrap_successful = len(boot_c),
     )
 
 
@@ -865,9 +1105,7 @@ def evaluate_train(model, model_type: str,
 
     c_idx, *_ = concordance_index_censored(e_tr, t_tr, risk)
 
-    t_lo = float(y_train[TIME_COL].min()) + 0.5
-    t_hi = float(y_train[TIME_COL].max()) - 0.5
-    times_tr = times[(times > t_lo) & (times < t_hi)]
+    times_tr = _clip_times(times, y_train, y_train)
 
     ibs = np.nan
     if len(times_tr) >= 2:
@@ -879,12 +1117,9 @@ def evaluate_train(model, model_type: str,
                 times_tr)
         elif model_type == "deepsurv":
             surv_mat = _surv_matrix_deepsurv(model, feat_df_train, times_tr)
-        try:
-            ibs = float(integrated_brier_score(y_train, y_train, surv_mat, times_tr))
-        except Exception:
-            ibs = np.nan
+        ibs = float(integrated_brier_score(y_train, y_train, surv_mat, times_tr))
 
-    return dict(c_index=float(c_idx), ibs=ibs)
+    return dict(c_index=float(c_idx), ibs=ibs, times=times_tr.tolist())
 
 
 def risk_tertile_curves(risk: np.ndarray, df_test: pd.DataFrame) -> dict:

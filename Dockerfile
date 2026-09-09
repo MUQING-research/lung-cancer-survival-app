@@ -3,13 +3,14 @@ FROM python:3.13-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libfreetype6-dev fontconfig \
+        libfreetype6-dev fontconfig fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY survival_core.py survival_app.py app.py tcga_luad_app_bundle.pkl world.geojson ./
+COPY survival_core.py survival_app.py app.py tcga_luad_app_bundle.pkl world.geojson theme.css ./
+COPY eda_decisions.json ./
 
 EXPOSE 7860
 

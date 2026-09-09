@@ -9,6 +9,7 @@ Cell Press visual style · Research & educational use only
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import io
 import json
@@ -27,7 +28,7 @@ import pandas as pd
 import requests
 from lifelines import KaplanMeierFitter
 from shiny import App, reactive, render, ui
-from sklearn.impute import SimpleImputer
+from shiny.types import SafeException
 from sklearn.model_selection import train_test_split
 from sksurv.metrics import brier_score as _brier_score
 from sksurv.util import Surv
@@ -65,15 +66,7 @@ if os.name == "nt":
 
     tempfile.TemporaryDirectory = _SafeTemporaryDirectory
 
-sc.apply_cell_matplotlib_style(**{
-    "font.size": 8.0,
-    "axes.titlesize": 9.0,
-    "axes.labelsize": 8.5,
-    "xtick.labelsize": 7.5,
-    "ytick.labelsize": 7.5,
-    "legend.fontsize": 7.5,
-    "lines.markersize": 3.2,
-})
+sc.apply_cell_matplotlib_style()
 
 _COX_CLR = BRAND["navy"]
 _AFT_CLR = BRAND["green"]
@@ -134,6 +127,15 @@ def _first_diag(diags: list, key: str):
     return None
 
 
+def _numeric(value):
+    """Convert source numeric fields without treating missing codes as numbers."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if np.isfinite(number) and number >= 0 else None
+
+
 def _download_gdc() -> list:
     if _GDC_CACHE.exists():
         print(f"  GDC cache: {_GDC_CACHE}", flush=True)
@@ -162,30 +164,57 @@ def _download_gdc() -> list:
 
 
 def _preprocess(hits: list) -> pd.DataFrame:
+    """Clean source values only, before any distribution-dependent processing."""
     rows = []
+    seen = set()
+    excluded = {"duplicate_case": 0, "unknown_vital_status": 0, "invalid_survival_time": 0}
     for h in hits:
+        case_id = h.get("case_id") or h.get("id")
+        if case_id in seen:
+            excluded["duplicate_case"] += 1
+            continue
+        if case_id is not None:
+            seen.add(case_id)
         dem   = h.get("demographic") or {}
         diags = h.get("diagnoses") or []
-        event = 1 if dem.get("vital_status", "").upper() == "DEAD" else 0
-        t_days = (
-            (dem.get("days_to_death") or _first_diag(diags, "days_to_death"))
-            if event else _first_diag(diags, "days_to_last_follow_up")
-        )
-        age_d = _first_diag(diags, "age_at_diagnosis")
-        m_raw = str(_first_diag(diags, "ajcc_pathologic_m") or "").upper()
+        vital = str(dem.get("vital_status") or "").strip().upper()
+        if vital not in {"ALIVE", "DEAD"}:
+            excluded["unknown_vital_status"] += 1
+            continue
+        event = int(vital == "DEAD")
+        if event:
+            t_days = _numeric(dem.get("days_to_death"))
+            if t_days is None:
+                t_days = _numeric(_first_diag(diags, "days_to_death"))
+        else:
+            follow_up = [_numeric(d.get("days_to_last_follow_up")) for d in diags]
+            t_days = max((t for t in follow_up if t is not None), default=None)
+        if t_days is None or t_days <= 0:
+            excluded["invalid_survival_time"] += 1
+            continue
+        # Select one staging record for baseline predictors instead of combining
+        # values from different primary and later diagnosis records.
+        stage_keys = ("ajcc_pathologic_stage", "ajcc_pathologic_t", "ajcc_pathologic_n", "ajcc_pathologic_m")
+        baseline = max(diags, key=lambda d: sum(d.get(k) is not None for k in stage_keys), default={})
+        age_d = _numeric(baseline.get("age_at_diagnosis"))
+        age = age_d / 365.25 if age_d is not None else None
+        if age is not None and not 18 <= age <= 100:
+            age = None
+        m_raw = str(baseline.get("ajcc_pathologic_m") or "").strip().upper()
         rows.append({
-            TIME_COL:  float(t_days) / _DAYS_PER_M if t_days else None,
+            "case_id": case_id,
+            TIME_COL:  t_days / _DAYS_PER_M,
             EVENT_COL: event,
-            "age":     float(age_d) / 365.25 if age_d else None,
-            "stage":   _STAGE_MAP.get(_first_diag(diags, "ajcc_pathologic_stage") or ""),
-            "t_stage": _T_MAP.get(_first_diag(diags, "ajcc_pathologic_t") or ""),
-            "n_stage": _N_MAP.get(_first_diag(diags, "ajcc_pathologic_n") or ""),
+            "age":     age,
+            "stage":   _STAGE_MAP.get(str(baseline.get("ajcc_pathologic_stage") or "").strip()),
+            "t_stage": _T_MAP.get(str(baseline.get("ajcc_pathologic_t") or "").strip()),
+            "n_stage": _N_MAP.get(str(baseline.get("ajcc_pathologic_n") or "").strip()),
             "m_stage": (1.0 if m_raw.startswith("M1") else
                         0.0 if m_raw.startswith("M0") else None),
         })
     df = pd.DataFrame(rows)
-    df = df.dropna(subset=[TIME_COL, EVENT_COL])
-    return df[df[TIME_COL] > 0].reset_index(drop=True)
+    df.attrs["cleaning_audit"] = {"source_rows": len(hits), "retained_rows": len(df), "excluded": excluded}
+    return df.reset_index(drop=True)
 
 
 def _make_y(df: pd.DataFrame):
@@ -197,16 +226,15 @@ def _make_y(df: pd.DataFrame):
 
 
 def _feat_matrix(df: pd.DataFrame,
-                 imputer: SimpleImputer = None,
-                 fit: bool = False) -> tuple[pd.DataFrame, SimpleImputer]:
+                 imputer: sc.ClinicalPreprocessor = None,
+                 fit: bool = False) -> tuple[pd.DataFrame, sc.ClinicalPreprocessor]:
     X = df[FEAT_COLS].copy().astype(float)
     if fit:
-        imputer = SimpleImputer(strategy="median")
-        imputer.fit(X)
-    return pd.DataFrame(imputer.transform(X), columns=FEAT_COLS, index=df.index), imputer
+        imputer = sc.ClinicalPreprocessor().fit(X, df[[TIME_COL, EVENT_COL]])
+    return imputer.transform(X), imputer
 
 
-_BUNDLE_VERSION = 2
+_BUNDLE_VERSION = 3
 
 
 def _stage_counts(df: pd.DataFrame) -> dict[str, int]:
@@ -222,16 +250,13 @@ def _null_brier_curve(df_train: pd.DataFrame, y_train, y_test,
         km_ref = KaplanMeierFitter().fit(df_train[TIME_COL], df_train[EVENT_COL])
         ref_sf = np.array([km_ref.predict(t) for t in times_arr], dtype=float)
         null_m = np.tile(ref_sf, (n_test, 1))
-        _, null_bs = _brier_score(y_train, y_test, null_m, times_arr)
+        _, null_bs = _brier_score(y_train, sc.administrative_censor(y_test, times_arr), null_m, times_arr)
         return {"times": times_arr.tolist(), "values": np.asarray(null_bs).tolist()}
     except Exception:
         return {"times": [], "values": []}
 
 
 def _sanitized_bundle(raw: dict) -> tuple[dict, bool]:
-    if raw.get("bundle_version") == _BUNDLE_VERSION:
-        return raw, False
-
     df_train = raw.get("df_train")
     df_all = raw.get("df_all")
     y_train = raw["y_train"]
@@ -254,6 +279,8 @@ def _sanitized_bundle(raw: dict) -> tuple[dict, bool]:
         "y_train", "y_test", "n_total", "ev_rate", "med_fu",
         "dist", "km_train", "cox", "aft", "res_cox", "res_aft",
         "tr_cox", "tr_aft", "imp_statistics", "feat_cols",
+        "preprocessing_decisions", "provenance", "diagnostics",
+        "preprocessor",
     ]
     clean = {k: raw[k] for k in keep if k in raw}
     clean.update(
@@ -263,7 +290,22 @@ def _sanitized_bundle(raw: dict) -> tuple[dict, bool]:
         stage_counts=stage_counts or {str(i): 0 for i in range(1, 5)},
         null_brier=null_brier or {"times": [], "values": []},
     )
-    return clean, True
+    changed = set(raw) != set(clean) or raw.get("bundle_version") != _BUNDLE_VERSION
+    # Remove fit-only caches. Prediction requires parameters, baselines, and
+    # feature schema; no individual training feature matrix is needed.
+    for name in ("cox", "aft"):
+        model = clean[name]
+        owners = [model, vars(model).get("_model")]
+        for owner in owners:
+            if owner is None:
+                continue
+            for key in ("_training_data", "_training_df", "_X", "_Xs", "_norm_X",
+                        "_predicted_median", "_predicted_partial_hazards_",
+                        "_neg_likelihood", "_neg_likelihood_with_penalty_function"):
+                if key in vars(owner):
+                    del vars(owner)[key]
+                    changed = True
+    return clean, changed
 
 
 def _save_bundle(bundle: dict, path: Path) -> None:
@@ -316,18 +358,19 @@ def _startup_from_scratch() -> dict:
     )
 
     print("  Training Cox PH ...", flush=True)
-    cox = build_cox(df_train, feat_df=ft_train)
+    cox = build_cox(df_train, feat_df=ft_train, raw_feat_df=df_train[FEAT_COLS])
     print(f"    penalizer={cox._penalizer_used}  train C={cox.concordance_index_:.3f}",
           flush=True)
 
     print(f"  Training {dist['best']} AFT ...", flush=True)
     aft = build_aft(df_train, aft_class=dist["aft_class"], feat_df=ft_train)
 
+    eval_times = sc._clip_times(EVAL_TIMES, y_train, y_test)
     print("  Evaluating test set (n_boot=150) ...", flush=True)
     res_cox = evaluate(cox, "cox", df_test, y_train, y_test,
-                       EVAL_TIMES, feat_df_test=ft_test, n_boot=150)
+                       eval_times, feat_df_test=ft_test, n_boot=150)
     res_aft = evaluate(aft, "aft", df_test, y_train, y_test,
-                       EVAL_TIMES, feat_df_test=ft_test, n_boot=150)
+                       eval_times, feat_df_test=ft_test, n_boot=150)
     print(
         f"  Cox  C={res_cox['c_index']:.3f} [{res_cox['ci_lo']:.3f},{res_cox['ci_hi']:.3f}]"
         f"  IBS={res_cox['ibs']:.4f}", flush=True,
@@ -339,9 +382,9 @@ def _startup_from_scratch() -> dict:
 
     print("  Computing training-set metrics ...", flush=True)
     tr_cox = sc.evaluate_train(cox, "cox", df_train, y_train,
-                               EVAL_TIMES, feat_df_train=ft_train)
+                               eval_times, feat_df_train=ft_train)
     tr_aft = sc.evaluate_train(aft, "aft", df_train, y_train,
-                               EVAL_TIMES, feat_df_train=ft_train)
+                               eval_times, feat_df_train=ft_train)
     print(f"  Cox  train C={tr_cox['c_index']:.3f}  train IBS={tr_cox['ibs']:.4f}",
           flush=True)
     print(f"  AFT  train C={tr_aft['c_index']:.3f}  train IBS={tr_aft['ibs']:.4f}",
@@ -350,7 +393,30 @@ def _startup_from_scratch() -> dict:
     null_brier = _null_brier_curve(df_train, y_train, y_test, len(df_test),
                                    res_cox.get("times", EVAL_TIMES))
 
-    return dict(
+    for label, result in (("Cox test", res_cox), ("AFT test", res_aft), ("Cox train", tr_cox), ("AFT train", tr_aft)):
+        if not all(np.isfinite(result[key]) for key in ("c_index", "ibs")) or result.get("metric_errors"):
+            raise RuntimeError(f"Invalid {label} evaluation: {result.get('metric_errors', {})}")
+
+    decisions, diagnostics = sc.audit_clinical_preprocessing(df, df_train, ft_train, cox, imp)
+    provenance = {
+        "seed": SEED, "split": "80/20 event-stratified", "n_train": len(df_train), "n_test": len(df_test),
+        "train_events": int(df_train[EVENT_COL].sum()), "test_events": int(df_test[EVENT_COL].sum()),
+        "cleaning": df.attrs.get("cleaning_audit", {}),
+        "source_sha256": hashlib.sha256(json.dumps(hits, sort_keys=True).encode()).hexdigest(),
+        "cox_cv": "Five event-stratified folds; imputation, functional screening, spline knots and dummy levels refitted in each training fold",
+        "evaluation_times": eval_times.tolist(),
+        "versions": {"lifelines": sc.lifelines.__version__, "scikit_survival": sc.sksurv.__version__, "scikit_learn": sc.sklearn.__version__},
+    }
+    audit_dir = Path(__file__).parent / ".cache" / "audit"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    df.to_csv(audit_dir / "tcga_luad_cleaned.csv", index=False)
+    ft_train.to_csv(audit_dir / "X_train_design.csv", index=False)
+    ft_test.to_csv(audit_dir / "X_test_design.csv", index=False)
+    (audit_dir / "data_dictionary.json").write_text(json.dumps(decisions, indent=2), encoding="utf-8")
+    (Path(__file__).parent / "eda_decisions.json").write_text(
+        json.dumps({"variables": decisions, "provenance": provenance, "diagnostics": diagnostics}, indent=2, allow_nan=False), encoding="utf-8",
+    )
+    bundle = dict(
         bundle_version=_BUNDLE_VERSION,
         y_train=y_train, y_test=y_test,
         n_total=n_total, ev_rate=ev_rate, med_fu=med_fu,
@@ -362,15 +428,21 @@ def _startup_from_scratch() -> dict:
         tr_cox=tr_cox, tr_aft=tr_aft,
         null_brier=null_brier,
         imp_statistics=imp.statistics_.tolist(), feat_cols=FEAT_COLS,
+        preprocessing_decisions=decisions, provenance=provenance, diagnostics=diagnostics,
+        preprocessor=imp,
     )
+    return _sanitized_bundle(bundle)[0]
 
 
 print("=" * 56, flush=True)
 print("TCGA-LUAD Survival App — initialising", flush=True)
 print("=" * 56, flush=True)
 
-if _BUNDLE_PATH.exists():
-    _B, _changed = _sanitized_bundle(_startup_from_bundle(_BUNDLE_PATH))
+if _BUNDLE_PATH.exists() and os.environ.get("SURVIVAL_REBUILD_BUNDLE") != "1":
+    _raw_bundle = _startup_from_bundle(_BUNDLE_PATH)
+    if _raw_bundle.get("bundle_version") != _BUNDLE_VERSION:
+        raise RuntimeError("Outdated survival bundle. Run bundle_survival.py before starting the app.")
+    _B, _changed = _sanitized_bundle(_raw_bundle)
     if _changed:
         _save_bundle(_B, _BUNDLE_PATH)
         print(f"  Bundle sanitized: {_BUNDLE_PATH}", flush=True)
@@ -382,10 +454,8 @@ else:
 # ── Unpack bundle ─────────────────────────────────────────────────────────────
 _Y_TR     = _B["y_train"]
 _Y_TE     = _B["y_test"]
-# Rebuild imputer from saved statistics to avoid sklearn version mismatch
-_IMP = SimpleImputer(strategy="median")
-_IMP.fit(pd.DataFrame([_B["imp_statistics"]], columns=FEAT_COLS))
-_IMP.statistics_ = np.array(_B["imp_statistics"])
+# The fitted transformer stores training statistics, spline knots and categories.
+_IMP = _B["preprocessor"]
 
 N_TOTAL  = _B["n_total"]
 EV_RATE  = _B["ev_rate"]
@@ -667,7 +737,7 @@ def _make_visit_map_sv(visits, user_lat=None, user_lon=None,
     user_lat = _map_coordinate_sv(user_lat, -90.0, 90.0)
     user_lon = _map_coordinate_sv(user_lon, -180.0, 180.0)
 
-    fig, ax = plt.subplots(figsize=(6.6, 3.15), facecolor="white")
+    fig, ax = plt.subplots(figsize=(7.0, 3.5), facecolor="white")
     ax.set_facecolor("white")
     ax.set_xlim(-180, 180)
     ax.set_ylim(-70, 85)
@@ -812,7 +882,7 @@ def _figure_tag(fig, alt: str):
 
 def _make_dist_fig():
     """Marginal survival distribution: KM + parametric candidates."""
-    fig, ax = plt.subplots(figsize=(6.6, 3.15))
+    fig, ax = plt.subplots(figsize=(7.0, 3.5))
     _cell_ax(fig, ax)
 
     km_t, km_s = _survival_function_frame(KM_TRAIN)
@@ -864,7 +934,7 @@ def _make_perf_plot(is_narrow: bool):
         gs = fig.add_gridspec(2, 1, hspace=0.70)
         axs = [fig.add_subplot(gs[i, 0]) for i in range(2)]
     else:
-        fig = plt.figure(figsize=(10.3, 4.9))
+        fig = plt.figure(figsize=(7.0, 3.5))
         gs = fig.add_gridspec(1, 2, wspace=0.42)
         axs = [fig.add_subplot(gs[0, i]) for i in range(2)]
 
@@ -1234,16 +1304,16 @@ html,body{
 /* Plot & figure frames — uniform sizing and spacing */
 .plot-frame{
   width:100%;
-  height:clamp(250px,22vw,340px);
+  height:clamp(220px,18vw,280px);
   display:flex;align-items:center;justify-content:center;
   overflow:hidden;
   padding:8px;
   box-sizing:border-box;
 }
-.plot-frame.plot-map{height:clamp(240px,28vw,340px);}
-.plot-frame.plot-survival{height:clamp(240px,20vw,340px);}
-.plot-frame.plot-survival-full{height:clamp(300px,34vw,500px);}
-.plot-frame.plot-tall{height:clamp(320px,28vw,400px);}
+.plot-frame.plot-map{height:clamp(220px,22vw,280px);}
+.plot-frame.plot-survival{height:clamp(220px,18vw,280px);}
+.plot-frame.plot-survival-full{height:clamp(260px,24vw,340px);}
+.plot-frame.plot-tall{height:clamp(260px,24vw,340px);}
 .plot-frame .shiny-plot-output,.plot-frame .shiny-html-output{width:100%!important;height:100%!important;}
 .plot-frame .shiny-plot-output img,.plot-frame .shiny-plot-output canvas,
 .plot-frame .shiny-html-output img{
@@ -1264,26 +1334,30 @@ html,body{
   justify-content:center;
   padding:8px;
   box-sizing:border-box;
+  max-width:900px;
+  margin:0 auto;
 }
 .responsive-figure img{
   display:block;
   width:auto!important;
   height:auto!important;
   max-width:100%;
-  max-height:520px;
+  max-height:360px;
   object-fit:contain;
   margin:0 auto;
   border:1px solid #E9D5FF;
   border-radius:4px;
 }
 .responsive-plot-mobile{display:none;}
+.performance-rail{display:grid;gap:12px;align-content:start;}
+.performance-rail .summary-tile,.performance-rail .note-block{margin:0;}
 .equal-card{height:100%;display:flex;flex-direction:column;}
 .equal-card .card-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
 .equal-card .plot-frame{flex:0 0 auto;}
 .plot-frame,.result-frame{flex:1 1 auto;min-height:0;}
 .result-frame{display:flex;flex-direction:column;justify-content:flex-start;}
-.result-frame.result-map{min-height:clamp(240px,28vw,340px);}
-.result-frame.result-survival,.result-frame.result-dist{min-height:clamp(240px,20vw,340px);}
+.result-frame.result-map{min-height:clamp(220px,22vw,280px);}
+.result-frame.result-survival,.result-frame.result-dist{min-height:clamp(220px,18vw,280px);}
 /* Solid Cell colour layer */
 .hero-banner{
   background:#3C5488;
@@ -1417,13 +1491,13 @@ html,body{
   .bslib-sidebar-layout>.main{padding:14px!important;}
   .page-title{font-size:clamp(1.4rem,6.5vw,1.8rem);}
   .page-subtitle{font-size:.8rem;}
-  .plot-frame{height:clamp(220px,60vw,320px);}
-  .plot-frame.plot-map{height:clamp(220px,60vw,310px);}
-  .plot-frame.plot-survival{height:clamp(230px,64vw,330px);}
-  .plot-frame.plot-survival-full{height:clamp(280px,74vw,460px);}
-  .plot-frame.plot-tall{height:clamp(300px,80vw,400px);}
-  .result-frame.result-map{min-height:clamp(220px,60vw,310px);}
-  .result-frame.result-survival,.result-frame.result-dist{min-height:clamp(230px,64vw,330px);}
+  .plot-frame{height:clamp(210px,58vw,290px);}
+  .plot-frame.plot-map{height:clamp(210px,58vw,290px);}
+  .plot-frame.plot-survival{height:clamp(220px,60vw,310px);}
+  .plot-frame.plot-survival-full{height:clamp(250px,68vw,360px);}
+  .plot-frame.plot-tall{height:clamp(250px,68vw,360px);}
+  .result-frame.result-map{min-height:clamp(210px,58vw,290px);}
+  .result-frame.result-survival,.result-frame.result-dist{min-height:clamp(210px,58vw,300px);}
   .nav-tabs .nav-link{padding:.5rem .8rem;font-size:.74rem;}
   .prob-row{grid-template-columns:48px minmax(0,1fr) 56px;gap:8px;}
 }
@@ -1433,7 +1507,8 @@ html,body{
   .navbar{padding:.7rem .85rem;}
   .responsive-plot-desktop{display:none;}
   .responsive-plot-mobile{display:flex;}
-  .responsive-figure img{max-height:640px;}
+  .responsive-figure{max-width:100%;}
+  .responsive-figure img{max-height:440px;}
 }
 """# ── 5. UI ────────────────────────────────────────────────────────────────────
 
@@ -1516,7 +1591,7 @@ app_ui = ui.page_sidebar(
             style="line-height:2;",
         ),
         ui.tags.p(
-            f"TCGA-LUAD · training {N_TRAIN} / test {N_TEST} · training-median imputation",
+            f"TCGA-LUAD · training {N_TRAIN} / test {N_TEST} · training-only imputation",
             style=f"font-size:.72rem;color:{_MUTED};margin:4px 0 0;",
         ),
 
@@ -1578,41 +1653,38 @@ app_ui = ui.page_sidebar(
                 "Compare Cox PH and parametric AFT survival estimates for one patient across clinically relevant time points.",
             ),
             ui.output_ui("info_bar"),
-            ui.card(
-                ui.card_header("Predicted Survival Curves"),
-                ui.tags.div(
-                    ui.output_plot("survival_curve", width="100%", height="100%"),
-                    class_="plot-frame plot-survival-full",
-                ),
-                class_="equal-card",
-            ),
             ui.layout_columns(
                 ui.card(
-                    ui.card_header("Survival Probability at Key Time Points"),
-                    ui.tags.div(ui.output_ui("prob_table"), class_="result-frame result-survival"),
+                    ui.card_header("Predicted Survival Curves"),
+                    ui.tags.div(
+                        ui.output_plot("survival_curve", width="100%", height="100%"),
+                        class_="plot-frame plot-survival-full",
+                    ),
                     class_="equal-card",
                 ),
                 ui.card(
-                    ui.card_header("Reading the Curves"),
+                    ui.card_header("Key Time Points and Interpretation"),
+                    ui.output_ui("prob_table"),
                     ui.tags.div(
+                        ui.tags.div("Reading the curves", class_="note-title"),
                         ui.tags.p(
                             "The solid navy curve is the Cox PH projection; the "
                             "dashed teal curve is the "
                             f"{DIST['best']} AFT estimate. The shaded band shows "
                             "the difference between the two model estimates, and the "
                             "dotted lines mark the 12-, 24-, 36-, and 60-month time points.",
-                            style="font-size:.82rem;line-height:1.6;color:var(--muted);",
+                            style="font-size:.76rem;line-height:1.52;color:var(--muted);margin:6px 0 0;",
                         ),
-                        class_="result-frame result-survival",
+                        style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px;",
                     ),
                     class_="equal-card",
                 ),
-                col_widths=[7, 5],
+                col_widths=[8, 4],
             ),
             ui.tags.div(
                 _note_block(
                     "Inputs used",
-                    "Age, AJCC pathologic stage, and pathologic T, N, and M categories are used as predictors in both models. Missing values are imputed using training-set medians.",
+                    "Age, AJCC pathologic stage, and pathologic T, N, and M categories are used as predictors in both models. Missing age uses the training median; missing stage categories use the training mode.",
                 ),
                 _note_block(
                     "Model pairing",
@@ -1724,52 +1796,47 @@ app_ui = ui.page_sidebar(
                 "Compare discrimination, prediction error, uncertainty, and training-to-test differences for both survival models.",
             ),
             ui.output_ui("perf_chips"),
-            ui.tags.div(
-                _summary_tile(
-                    "AFT family",
-                    DIST["best"],
-                    f"AIC-selected from {len(DIST['table'])} parametric candidates",
-                    "accent-teal",
-                ),
-                _summary_tile(
-                    "Cox test C-index",
-                    f"{RES_COX['c_index']:.3f}",
-                    f"train {TR_COX.get('c_index', float('nan')):.3f} / test {RES_COX['c_index']:.3f}",
-                    "accent-blue",
-                ),
-                _summary_tile(
-                    "AFT test C-index",
-                    f"{RES_AFT['c_index']:.3f}",
-                    f"train {TR_AFT.get('c_index', float('nan')):.3f} / test {RES_AFT['c_index']:.3f}",
-                    "accent-navy",
-                ),
-                _summary_tile(
-                    "Evaluation window",
-                    "12–60 m",
-                    "IBS and dynamic AUC are aligned to shared follow-up times",
-                    "accent-salmon",
-                ),
-                class_="summary-grid",
-            ),
-            ui.card(
-                ui.card_header(
-                    f"Training and Test Comparison — N = {N_TEST} held-out patients"
+            ui.layout_columns(
+                ui.card(
+                    ui.card_header(
+                        f"Training and Test Comparison — N = {N_TEST} held-out patients"
+                    ),
+                    ui.tags.div(
+                        ui.output_ui("perf_plot_desktop"),
+                        class_="responsive-figure responsive-plot-desktop",
+                    ),
+                    ui.tags.div(
+                        ui.output_ui("perf_plot_mobile"),
+                        class_="responsive-figure responsive-plot-mobile",
+                    ),
+                    ui.tags.p(
+                        ui.tags.span("Figure 2", class_="fig-no"),
+                        " · Model comparison on the held-out test set: "
+                        "Harrell's C-index with 95% bootstrap intervals (A) and "
+                        "time-dependent AUC at 12–60 months (B).",
+                        class_="figure-caption",
+                    ),
                 ),
                 ui.tags.div(
-                    ui.output_ui("perf_plot_desktop"),
-                    class_="responsive-figure responsive-plot-desktop",
+                    _summary_tile(
+                        "AFT family",
+                        DIST["best"],
+                        f"AIC-selected from {len(DIST['table'])} parametric candidates",
+                        "accent-teal",
+                    ),
+                    _summary_tile(
+                        "Evaluation window",
+                        "12–60 m",
+                        "IBS and dynamic AUC use shared follow-up times",
+                        "accent-salmon",
+                    ),
+                    _note_block(
+                        "Held-out sample",
+                        f"All test estimates shown here use the same {N_TEST} patients.",
+                    ),
+                    class_="performance-rail",
                 ),
-                ui.tags.div(
-                    ui.output_ui("perf_plot_mobile"),
-                    class_="responsive-figure responsive-plot-mobile",
-                ),
-                ui.tags.p(
-                    ui.tags.span("Figure 2", class_="fig-no"),
-                    " · Model comparison on the held-out test set: "
-                    "Harrell's C-index with 95% bootstrap intervals (A) and "
-                    "time-dependent AUC at 12–60 months (B).",
-                    class_="figure-caption",
-                ),
+                col_widths=[9, 3],
             ),
             ui.tags.div(
                 _note_block(
@@ -1916,13 +1983,13 @@ def server(input, output, session):
     def patient_feat() -> pd.DataFrame:
         input.submit()
         with reactive.isolate():
-            row = {
-                "age":     float(input.age()),
-                "stage":   float(input.stage()),
-                "t_stage": float(input.t_stage()),
-                "n_stage": float(input.n_stage()),
-                "m_stage": float(input.m_stage()),
-            }
+            try:
+                row = sc.validate_clinical_inputs({
+                    "age": input.age(), "stage": input.stage(), "t_stage": input.t_stage(),
+                    "n_stage": input.n_stage(), "m_stage": input.m_stage(),
+                })
+            except ValueError as exc:
+                raise SafeException(str(exc)) from None
         df_pt = pd.DataFrame([row])
         feat, _ = _feat_matrix(df_pt, imputer=_IMP)
         return feat
@@ -1966,7 +2033,7 @@ def server(input, output, session):
     def survival_curve():
         s_cox, s_aft = curves()
 
-        fig, ax = plt.subplots(figsize=(10.2, 4.85))
+        fig, ax = plt.subplots(figsize=(7.0, 3.5))
         _cell_ax(fig, ax)
 
         ax.plot(_CURVE_T, s_cox, color=_COX_CLR, lw=1.0, label="Cox PH", zorder=4)
@@ -2215,7 +2282,7 @@ def server(input, output, session):
       event rate was {EV_RATE:.0%}, and median follow-up was {MED_FU:.0f} months.
       Data were divided using an 80/20 split stratified by event status
       (training N = {N_TRAIN}; test N = {N_TEST}). Missing values were imputed using
-      training-set medians.</p>
+      the training median for age and training modes for stage categories.</p>
 
       <h4>Distribution selection</h4>
       <p>Four parametric families (Weibull, Log-Normal, Log-Logistic, Exponential) were
@@ -2227,7 +2294,9 @@ def server(input, output, session):
 
       <h4>Cox Proportional Hazards</h4>
       <p>A semiparametric Cox model was fitted with lifelines. The L2 penalizer was tuned by
-      5-fold CV grid search over [0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0].
+      5-fold event-stratified CV grid search over [0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0].
+      Imputation, functional-form screening, spline knots and category encodings
+      were fitted separately within each training fold.
       The selected penalizer was {COX._penalizer_used}. Survival curves were derived
       using the Breslow baseline-hazard estimator.</p>
 
@@ -2242,7 +2311,17 @@ def server(input, output, session):
       <p>Training-set C-index and IBS are reported as apparent performance. Test-set
       C-index is accompanied by a 95% bootstrap confidence interval based on 150
       resamples. IBS is evaluated at 12, 24, 36, 48, and 60 months. Test-set
-      time-dependent AUC uses the cumulative/dynamic definition.</p>
+      time-dependent AUC uses the cumulative/dynamic definition. Evaluation horizons
+      lie within both follow-up ranges, with the same IBS horizons for train and test.
+      Outcomes beyond the last horizon are administratively censored for test IPCW metrics.</p>
+
+      <h4>Model assumptions</h4>
+      <p>Training-only Cox likelihood-ratio tests selected a 3-knot age spline and
+      dummy encoding for overall and N stage; T stage retains integer coding.
+      Proportional-hazards diagnostics were reviewed on training data only.
+      Overall stage overlaps with T, N, and M information. Missing M stage
+      is common, and simple imputation does not represent its full uncertainty.
+      External validation is needed before clinical use.</p>
     </div>
   </div>
 
@@ -2251,12 +2330,12 @@ def server(input, output, session):
     <div class="card-body" style="padding:14px!important;">
       <table class="mtbl">
         <thead><tr>
-          <th>Column</th><th>Description</th><th>Training Median</th>
+          <th>Column</th><th>Description</th><th>Imputation Value</th>
         </tr></thead>
         <tbody>{feat_rows}</tbody>
       </table>
       <p style="font-size:.76rem;color:{_MUTED};margin-top:10px;">
-        Missing values were imputed using training-set medians.
+        Missing age uses the training median; missing stage categories use training modes.
         Stage distribution: I={int(STAGE_COUNTS.get("1", 0))}
         · II={int(STAGE_COUNTS.get("2", 0))}
         · III={int(STAGE_COUNTS.get("3", 0))}
