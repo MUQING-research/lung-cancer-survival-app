@@ -1554,9 +1554,8 @@ def _note_block(title: str, copy: str) -> ui.Tag:
 
 def _input_panel():
     return ui.tags.aside(
-        ui.tags.div("PATIENT PROFILE", class_="input-eyebrow"),
-        ui.tags.h4("Describe the patient", class_="input-title"),
-        ui.tags.p("Enter age and pathologic stage to compare two survival models.",
+        ui.tags.h4("Patient profile", class_="input-title"),
+        ui.tags.p("Enter age and pathologic stage.",
                   class_="input-copy"),
         ui.tags.div("Patient & overall stage", class_="input-group-label"),
         ui.tags.div(
@@ -1575,6 +1574,14 @@ def _input_panel():
         ui.input_action_button("submit", "Update Prediction", class_="btn btn-primary w-100"),
         ui.tags.p("Inputs are applied when you update the prediction.", class_="input-hint"),
         class_="input-panel", **{"aria-label": "Patient inputs"},
+    )
+
+
+def _view_notes(*notes):
+    return ui.tags.details(
+        ui.tags.summary("Reading guide"),
+        ui.tags.div(*notes, class_="note-grid"),
+        class_="detail-panel view-notes",
     )
 
 
@@ -1637,16 +1644,16 @@ app_ui = ui.page_fluid(
                         ui.tags.div(ui.output_ui("survival_curve_mobile"),
                                     class_="chart-image chart-square mobile-chart"),
                     ),
-                    ui.output_ui("info_bar"),
                     ui.tags.details(
                         ui.tags.summary("All time points and model differences"),
                         ui.output_ui("prob_table"), class_="detail-panel",
                     ),
                     class_="prediction-results",
                 ),
+                ui.tags.div(ui.output_ui("info_bar"), class_="prediction-milestones"),
                 class_="prediction-workspace",
             ),
-            ui.tags.div(
+            _view_notes(
                 _note_block(
                     "Inputs used",
                     "Age, AJCC pathologic stage, and pathologic T, N, and M categories are used as predictors in both models. Missing age uses the training median; missing stage categories use the training mode.",
@@ -1659,7 +1666,6 @@ app_ui = ui.page_fluid(
                     "Intended use",
                     "This interface is intended for research and education. It displays training and test performance and is not a clinical decision-support system.",
                 ),
-                class_="note-grid",
             ),
             ui.tags.p(
                 "Based on TCGA-LUAD data. For research and educational use only; "
@@ -1765,7 +1771,7 @@ app_ui = ui.page_fluid(
                                     class_="chart-image chart-square")),
                 class_="chart-grid",
             ),
-            ui.tags.div(
+            _view_notes(
                 _note_block(
                     "Bootstrap uncertainty",
                     "Test-set C-index intervals are estimated with 150 bootstrap resamples so rank differences are not read as exact.",
@@ -1778,7 +1784,6 @@ app_ui = ui.page_fluid(
                     "Overfitting check",
                     "Training and test estimates are shown together. A large difference may indicate overfitting.",
                 ),
-                class_="note-grid",
             ),
         ),
 

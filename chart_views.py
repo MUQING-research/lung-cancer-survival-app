@@ -38,7 +38,8 @@ CELL_COLORS = [
 
 
 def canvas(title, wide=False):
-    fig, ax = plt.subplots(figsize=(7.0 if wide else 3.5, 3.5))
+    # Compact UI renditions keep publication typography without empty gutters.
+    fig, ax = plt.subplots(figsize=(7.0, 2.8) if wide else (3.5, 3.0))
     ax.set_title(title, loc="left", pad=10)
     ax.spines[["top", "right", "bottom", "left"]].set_visible(True)
     ax.tick_params(direction="out")
@@ -50,9 +51,10 @@ def finish(fig, caption):
     """Reserve a real caption region inside the image, outside the data axes."""
     wide = fig.get_figwidth() > 5
     caption_lines = textwrap.fill(caption, width=112 if wide else 53)
-    footer = 0.16 if wide else 0.20
-    fig.tight_layout(pad=0.9, rect=(0, footer, 1, 1))
-    fig.text(0.05, 0.035, caption_lines, ha="left", va="bottom",
+    lines = len(caption_lines.splitlines())
+    footer = (lines * 10.4 + 7) / (72 * fig.get_figheight())
+    fig.tight_layout(pad=0.65, rect=(0, footer, 1, 1))
+    fig.text(0.04, 0.025, caption_lines, ha="left", va="bottom",
              fontsize=8, linespacing=1.3, color=CELL_COLORS[3])
     return fig
 
@@ -92,7 +94,7 @@ def cindex_figure(data):
             markersize=4, label="Train (apparent)")
     legend(ax, loc="upper left", bbox_to_anchor=(0, 1), ncol=1)
     return finish(fig, f"TCGA-LUAD | Train n={data['N_TRAIN']}; test n={data['N_TEST']}. "
-                  "Test intervals: 150 bootstrap resamples. AFT: Log-Logistic.")
+                  "Test CI: 150 bootstraps.")
 
 
 def auc_figure(data):
@@ -105,8 +107,8 @@ def auc_figure(data):
     ax.set(ylim=(0.45, 1), xlabel="Time (months)", ylabel="Cumulative / dynamic AUC",
            xticks=data["RES_COX"]["times"])
     legend(ax, loc="upper right")
-    return finish(fig, f"TCGA-LUAD | Held-out test n={data['N_TEST']}. "
-                  "IPCW uses the training censoring distribution; dotted line = chance.")
+    return finish(fig, f"TCGA-LUAD test n={data['N_TEST']} | "
+                  "Training-based IPCW; dotted line: chance.")
 
 
 def distribution_figure(data):
@@ -124,7 +126,7 @@ def distribution_figure(data):
     ax.set(xlim=(0, limit), ylim=(0, 1.05), xlabel="Time (months)", ylabel="Survival probability")
     legend(ax, loc="upper right", handlelength=1.6, labelspacing=0.35)
     return finish(fig, f"TCGA-LUAD | Training n={data['N_TRAIN']}. "
-                  "Parametric candidates fit marginal survival with censoring; best = lowest AIC.")
+                  "Censoring-aware marginal fits; best: lowest AIC.")
 
 
 def survival_figure(times, cox, aft, narrow=False):
@@ -136,5 +138,4 @@ def survival_figure(times, cox, aft, narrow=False):
     ax.set(xlim=(0, 72), ylim=(0, 1.04), xticks=[0, 12, 24, 36, 48, 60, 72],
            yticks=[0, 0.25, 0.5, 0.75, 1], xlabel="Time (months)", ylabel="Survival probability")
     legend(ax, loc="lower left")
-    return finish(fig, "TCGA-LUAD models | Shading shows model disagreement, not a "
-                  "confidence interval. Research and education only.")
+    return finish(fig, "TCGA-LUAD | Shading: model disagreement, not a confidence interval. Research only.")
