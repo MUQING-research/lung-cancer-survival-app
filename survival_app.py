@@ -1732,7 +1732,7 @@ app_ui = ui.page_fluid(
                     ),
                     class_="equal-card",
                 ),
-                col_widths=[7, 5],
+                col_widths=[6, 6],
             ),
             ui.tags.details(
                 ui.tags.summary("Visitor activity"),
@@ -2155,7 +2155,8 @@ def server(input, output, session):
 
   <div class="card" style="margin-bottom:14px;">
     <div class="card-header">Methods</div>
-    <div class="card-body" style="padding:14px!important;">
+    <div class="card-body method-narrative" style="padding:14px!important;">
+      <section class="method-section">
       <h4>Data</h4>
       <p>The TCGA-LUAD cohort represents lung adenocarcinoma cases from The Cancer
       Genome Atlas. Data for {N_TOTAL} patients were obtained from the public NCI
@@ -2165,7 +2166,9 @@ def server(input, output, session):
       Data were divided using an 80/20 split stratified by event status
       (training N = {N_TRAIN}; test N = {N_TEST}). Missing values were imputed using
       the training median for age and training modes for stage categories.</p>
+      </section>
 
+      <section class="method-section">
       <h4>Distribution selection</h4>
       <p>Four parametric families (Weibull, Log-Normal, Log-Logistic, Exponential) were
       fitted to the marginal survival times using maximum likelihood with censoring.
@@ -2173,7 +2176,9 @@ def server(input, output, session):
       (AIC advantage over Weibull:
       {DIST['table'].set_index('Distribution').loc['Weibull','AIC'] -
        DIST['table'].set_index('Distribution').loc[DIST['best'],'AIC']:.1f} points).</p>
+      </section>
 
+      <section class="method-section">
       <h4>Cox Proportional Hazards</h4>
       <p>A semiparametric Cox model was fitted with lifelines. The L2 penalizer was tuned by
       5-fold event-stratified CV grid search over [0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0].
@@ -2181,14 +2186,18 @@ def server(input, output, session):
       were fitted separately within each training fold.
       The selected penalizer was {COX._penalizer_used}. Survival curves were derived
       using the Breslow baseline-hazard estimator.</p>
+      </section>
 
+      <section class="method-section">
       <h4>{DIST['best']} Accelerated Failure Time</h4>
       <p>A fully parametric AFT model was fitted with lifelines. The AFT framework
       models survival time directly: log(T) = Xβ + σε, where ε follows the
       {DIST['best']} error distribution. Coefficients act on survival time rather than
       the hazard. The closed-form survival function permits model-based extrapolation,
       but estimates beyond the observed follow-up period require caution.</p>
+      </section>
 
+      <section class="method-section">
       <h4>Evaluation</h4>
       <p>Training-set C-index and IBS are reported as apparent performance. Test-set
       C-index is accompanied by a 95% bootstrap confidence interval based on 150
@@ -2196,7 +2205,9 @@ def server(input, output, session):
       time-dependent AUC uses the cumulative/dynamic definition. Evaluation horizons
       lie within both follow-up ranges, with the same IBS horizons for train and test.
       Outcomes beyond the last horizon are administratively censored for test IPCW metrics.</p>
+      </section>
 
+      <section class="method-section">
       <h4>Model assumptions</h4>
       <p>Training-only Cox likelihood-ratio tests selected a 3-knot age spline and
       dummy encoding for overall and N stage; T stage retains integer coding.
@@ -2204,6 +2215,7 @@ def server(input, output, session):
       Overall stage overlaps with T, N, and M information. Missing M stage
       is common, and simple imputation does not represent its full uncertainty.
       External validation is needed before clinical use.</p>
+      </section>
     </div>
   </div>
 

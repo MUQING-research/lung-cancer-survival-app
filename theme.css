@@ -708,3 +708,56 @@ body { height: auto; min-height: 100vh; }
   #pred_chips .chip { padding: 10px; }
   #pred_chips .chip-val { font-size: 1.14rem; }
 }
+
+/* Whole-app polish: consistent reading rhythm without enlarging chart canvases. */
+:root { --muted: #566675; }
+.dashboard-shell { --bs-body-font-family: var(--font); }
+.card-body, table, button, input, select { font-family: var(--font); }
+.input-panel { box-shadow: none; }
+.section-copy, .page-subtitle { color: var(--muted); font-size: .86rem; line-height: 1.55; }
+.card-header { font-size: .9rem; font-weight: 700; }
+.card-body { gap: 12px; }
+.card-body p, .note-copy { font-size: .82rem !important; line-height: 1.6; }
+.input-copy, .input-hint { color: var(--muted); }
+.tbl th, .mtbl th, .prob-tbl th { vertical-align: bottom; padding: 10px 12px; }
+.tbl td, .mtbl td, .prob-tbl td { padding: 10px 12px; line-height: 1.5; }
+.tbl tbody tr:nth-child(even), .mtbl tbody tr:nth-child(even) { background: #F8FAFC; }
+.tbl td.num, .mtbl td.num { font-weight: 600; }
+.card-body > .shiny-input-container { width: 100%; }
+.stage-tile { border-radius: 2px; padding: 12px 14px; }
+.detail-panel > summary { min-height: 44px; display: list-item; }
+.methods h4 { font-size: .9rem; letter-spacing: 0; text-transform: none; line-height: 1.4; margin: 0 0 8px; }
+.methods p { font-size: .88rem !important; line-height: 1.65; color: var(--ink-soft); }
+.methods .method-narrative { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 28px; }
+.method-section { min-width: 0; }
+.method-section p { margin-bottom: 0; }
+.methods .card-body:has(> table) { overflow-x: auto; }
+.methods table { min-width: 520px; }
+.methods .detail-panel { margin-bottom: 14px; }
+.methods .card-body > p { color: var(--muted) !important; }
+@media (max-width: 600px) {
+  .methods .card-body:has(> table)::before {
+    content: "Swipe horizontally to view all columns";
+    display: block; margin-bottom: 8px; font-size: .76rem; color: var(--muted);
+  }
+}
+.result-dist p { font-size: .85rem !important; line-height: 1.65 !important; color: var(--ink-soft) !important; }
+.result-dist h4 { font-size: .86rem !important; letter-spacing: 0 !important; text-transform: none !important; line-height: 1.4; }
+@media (max-width: 800px) {
+  .nav-tabs { flex-wrap: wrap; overflow: visible; gap: 2px; padding-bottom: 0; }
+  .nav-tabs .nav-item { flex: 1 1 auto; }
+  .nav-tabs .nav-link { width: 100%; min-height: 44px; padding: 10px !important; font-size: .84rem; text-align: center; }
+  .methods .method-narrative { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .methods table { font-size: .82rem; }
+  .card-header { line-height: 1.45; }
+}
+
+table:has(tbody td:nth-child(2).num) th:nth-child(2) { text-align: right; }
+
+table:has(tbody td:nth-child(3).num) th:nth-child(3) { text-align: right; }
+
+table:has(tbody td:nth-child(4).num) th:nth-child(4) { text-align: right; }
+
+table:has(tbody td:nth-child(5).num) th:nth-child(5) { text-align: right; }
+
+table:has(tbody td:nth-child(6).num) th:nth-child(6) { text-align: right; }
