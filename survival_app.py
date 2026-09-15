@@ -1019,493 +1019,6 @@ print("  Static figures rendered.", flush=True)
 
 # ── 4. CSS (Cell Press style) ────────────────────────────────────────────────
 
-_CSS = """
-
-:root{
-  --red:#E64B35;--blue:#4DBBD5;--teal:#00A087;--navy:#3C5488;--salmon:#F39B7F;
-  --lav:#8491B4;--mint:#91D1C2;--crimson:#DC0000;--brown:#7E6148;--tan:#B09C85;
-  --ink:#1E293B;--muted:#64748B;--surface:#FFFFFF;--white:#FFFFFF;--bg:#FFFFFF;
-  --line:#E2E8F0;--line-strong:#CBD5E1;
-  --accent:#3C5488;--accent-dark:#3C5488;
-  --r:8px;--r-sm:6px;
-  --font:'Arial','Helvetica Neue',Helvetica,'Liberation Sans','DejaVu Sans',sans-serif;
-  --serif:'Arial','Helvetica Neue',Helvetica,'Liberation Sans',sans-serif;
-}
-html,body{
-  height:100%;
-  font-family:var(--font);
-  font-size:15px;
-  font-variant-numeric:tabular-nums;
-  background:var(--bg);
-  color:var(--ink);
-  -webkit-font-smoothing:antialiased;
-}
-/* Masthead — Cell navy clinical theme. */
-.navbar{
-  background:#3C5488!important;
-  border-bottom:none!important;
-  box-shadow:0 4px 14px rgba(109,40,217,.25)!important;
-  padding:.9rem 1.5rem;
-}
-.navbar::after{display:none;}
-.navbar-brand{
-  color:#FFFFFF!important;
-  font-weight:800;
-  font-size:1.05rem;
-  letter-spacing:.2px;
-}
-.navbar-brand::before{
-  content:"";
-  display:inline-block;
-  width:10px;height:10px;
-  background:#FFFFFF;
-  border-radius:2px;
-  margin-right:.6rem;
-}
-/* Sidebar */
-.bslib-sidebar-layout>.sidebar{
-  background:#FBF9FF!important;
-  border-right:1px solid var(--line)!important;
-  box-shadow:none!important;
-  overflow-y:auto;
-  height:100%;
-  padding:1.15rem 1.25rem 1.6rem;
-}
-.sec{
-  font-size:.68rem;
-  font-weight:800;
-  color:#5B21B6;
-  text-transform:uppercase;
-  letter-spacing:1.8px;
-  margin:1.3rem 0 .75rem;
-  padding:0 0 .3rem .7rem;
-  border-left:3px solid var(--accent);
-  line-height:1.35;
-}
-.sec:first-child{margin-top:.2rem;}
-/* Forms */
-.form-label{font-size:.88rem;font-weight:700;color:#5B21B6;margin-bottom:.42rem;display:block;}
-.form-control,.form-select{
-  font-size:.86rem;
-  border:1px solid var(--line-strong);
-  border-radius:var(--r-sm);
-  background:var(--surface);
-  padding:.7rem .86rem;
-  min-height:2.95rem;
-  color:var(--ink);
-  box-shadow:none;
-  transition:border-color .16s,box-shadow .16s;
-}
-.form-control:focus,.form-select:focus{
-  border-color:var(--accent);
-  background:white;
-  box-shadow:0 0 0 3px rgba(124,58,237,.15);
-  outline:none;
-}
-.form-select{
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23647569' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 12px center;background-size:12px;
-  padding-right:2.3rem;-webkit-appearance:none;appearance:none;cursor:pointer;
-}
-/* Selectize — themed dropdowns */
-.selectize-control.single .selectize-input{
-  border:1px solid var(--line-strong)!important;
-  border-radius:var(--r-sm)!important;
-  box-shadow:none!important;
-  background:var(--surface)!important;
-  min-height:2.95rem;
-  padding:.62rem .8rem;
-  font-size:.86rem;
-  color:var(--ink)!important;
-}
-.selectize-control.single .selectize-input.focus{
-  border-color:var(--accent)!important;
-  box-shadow:0 0 0 3px rgba(124,58,237,.15)!important;
-}
-.selectize-dropdown{border:1px solid var(--line-strong)!important;border-radius:var(--r-sm)!important;}
-.selectize-dropdown .option.active{background:var(--accent)!important;color:#FFFFFF!important;}
-.selectize-control .selectize-input .item{color:#5B21B6!important;}
-/* Buttons — flat, journal-adjacent */
-.btn-primary{
-  background:var(--accent)!important;
-  border:none!important;
-  border-radius:var(--r-sm)!important;
-  color:#FFFFFF!important;
-  font-size:.78rem!important;
-  font-weight:800!important;
-  letter-spacing:.9px;
-  text-transform:uppercase;
-  padding:.8rem 1rem!important;
-  box-shadow:none!important;
-}
-.btn-primary:hover{background:var(--accent-dark)!important;transform:none!important;}
-/* Main column */
-.bslib-sidebar-layout>.main{padding:clamp(18px,2.6vw,30px)!important;}
-.card-body{padding:clamp(14px,1.7vw,20px)!important;}
-/* Hero */
-.hero-copy{margin-bottom:1.1rem;}
-.hero-kicker{
-  font-size:.64rem;
-  font-weight:800;
-  color:var(--accent);
-  text-transform:uppercase;
-  letter-spacing:2px;
-  margin-bottom:.35rem;
-}
-.page-title{
-  font-family:var(--font);
-  font-size:clamp(1.6rem,2vw,2.05rem);
-  font-weight:800;
-  color:#5B21B6;
-  display:inline-block;
-  margin:.15rem 0 .3rem;
-  letter-spacing:0;
-  position:relative;
-}
-.page-title::after{
-  content:"";
-  display:block;
-  height:3px;
-  width:min(100%,26rem);
-  background:var(--accent);
-  border-radius:999px;
-  margin-top:.6rem;
-}
-.page-subtitle{
-  color:var(--muted);
-  font-size:.84rem;
-  margin-bottom:1.25rem;
-  line-height:1.58;
-  max-width:70rem;
-}
-/* Cards — flat panels with hairline rules */
-.card{
-  border:1px solid #E9D5FF!important;
-  border-radius:var(--r)!important;
-  box-shadow:none!important;
-  background:var(--surface)!important;
-  overflow:hidden;
-  margin-bottom:16px;
-  position:relative;
-}
-.card::before{display:none;}
-.card-header{
-  background:#FAF8FF!important;
-  border-bottom:1px solid #EDE9FE!important;
-  border-left:3px solid var(--accent);
-  color:#5B21B6!important;
-  font-weight:800;
-  font-size:.86rem;
-  letter-spacing:.2px;
-  padding:.8rem 1.1rem;
-}
-/* Key-result blocks — flat white, coloured values */
-.infobar{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;}
-.metric-chip{
-  background:var(--surface);
-  border:1px solid #E9D5FF;
-  border-top:2px solid var(--accent);
-  border-radius:var(--r);
-  padding:.88rem 1rem;
-  display:flex;
-  flex-direction:column;
-  gap:.25rem;
-}
-.mc-label{font-size:.62rem;font-weight:800;color:#6D28D9;text-transform:uppercase;letter-spacing:1px;}
-.mc-value{font-size:1rem;font-weight:800;color:var(--ink);white-space:nowrap;}
-.mc-cox{color:#4F46E5!important;}
-.mc-aft{color:#EC4899!important;}
-.summary-grid,.stage-grid,.note-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 16px;}
-.summary-tile,.stage-tile{
-  position:relative;
-  overflow:hidden;
-  background:var(--surface);
-  border:1px solid #E9D5FF;
-  border-top:2px solid var(--accent);
-  border-radius:var(--r);
-  padding:14px 14px 12px;
-}
-.summary-tile.accent-blue{--tile-ink:#0E7490;}
-.summary-tile.accent-teal{--tile-ink:#7E22CE;}
-.summary-tile.accent-navy{--tile-ink:#6D28D9;}
-.summary-tile.accent-salmon{--tile-ink:#BE185D;}
-.stage-1{--stage-ink:#0E7490;}
-.stage-2{--stage-ink:#6D28D9;}
-.stage-3{--stage-ink:#7E22CE;}
-.stage-4{--stage-ink:#B45309;}
-.summary-label,.stage-kicker{font-size:.64rem;font-weight:800;color:#6D28D9;text-transform:uppercase;letter-spacing:1px;}
-.summary-value,.stage-value{font-size:1.24rem;font-weight:800;color:var(--tile-ink,var(--stage-ink,var(--ink)));line-height:1.1;margin-top:8px;}
-.summary-detail,.stage-detail{font-size:.78rem;color:var(--muted);line-height:1.48;margin-top:7px;}
-.section-head{display:flex;flex-direction:column;gap:4px;margin:0 0 14px;}
-.section-eyebrow{font-size:.64rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:1.6px;}
-.section-title{margin:0;font-size:1.08rem;font-weight:800;color:#5B21B6;}
-.section-copy{margin:0;max-width:60rem;font-size:.82rem;line-height:1.55;color:var(--muted);}
-.note-block{
-  background:var(--surface);
-  border:0;
-  border-left:3px solid var(--accent);
-  padding:9px 12px;
-}
-.note-title{font-size:.72rem;font-weight:800;color:#5B21B6;text-transform:uppercase;letter-spacing:.7px;}
-.note-copy{margin:6px 0 0;font-size:.78rem;line-height:1.5;color:var(--muted);}
-/* Tabs — flat journal section tabs */
-.nav-tabs{
-  border:0!important;
-  border-bottom:1px solid #DDD6FE!important;background:#FBF9FF!important;
-  margin-bottom:20px;
-  gap:4px;
-  flex-wrap:wrap;
-}
-.nav-tabs .nav-link{
-  color:#7E22CE!important;
-  background:transparent!important;
-  border:0!important;
-  border-radius:0!important;
-  box-shadow:none!important;
-  font-size:.78rem;
-  font-weight:700;
-  text-transform:uppercase;
-  letter-spacing:.6px;
-  padding:.6rem .95rem!important;
-  margin-bottom:-1px;
-  transition:color .14s,border-color .14s;
-}
-.nav-tabs .nav-link:hover{color:var(--ink)!important;background:#F5F3FF!important;transform:none!important;}
-.nav-tabs .nav-link.active{
-  color:var(--ink)!important;
-  font-weight:800;
-  background:transparent!important;
-  border-bottom:2px solid var(--accent)!important;
-  box-shadow:none!important;
-}
-/* Tables — journal rules (thick top, header hairline, no fills) */
-.prob-tbl,.mtbl{width:100%;border-collapse:collapse;font-size:.82rem;}
-.prob-tbl th,.mtbl th{
-  text-align:left;color:#5B21B6;font-weight:800;padding:.7rem .7rem;
-  background:#FAF8FF;
-  border-top:2px solid #475569;
-  border-bottom:1px solid #475569;
-  font-size:.62rem!important;text-transform:uppercase;
-  letter-spacing:.8px;white-space:nowrap;
-}
-.prob-tbl td,.mtbl td{padding:.7rem .7rem;border-bottom:1px solid #F1F5F9;
-  font-variant-numeric:tabular-nums;font-size:.82rem!important;}
-.prob-tbl td.val,.mtbl td.num{text-align:right;font-weight:700;color:var(--ink);}
-.prob-tbl td.cox{color:#4F46E5;}
-.prob-tbl td.aft{color:#EC4899;}
-.prob-tbl tr:hover td,.mtbl tr:hover td{background:#FAF5FF;}
-.mtbl tr.best td{background:#F5F3FF;}
-/* Plot & figure frames — uniform sizing and spacing */
-.plot-frame{
-  width:100%;
-  height:clamp(220px,18vw,280px);
-  display:flex;align-items:center;justify-content:center;
-  overflow:hidden;
-  padding:8px;
-  box-sizing:border-box;
-}
-.plot-frame.plot-map{height:clamp(220px,22vw,280px);}
-.plot-frame.plot-survival{height:clamp(220px,18vw,280px);}
-.plot-frame.plot-survival-full{height:clamp(260px,24vw,340px);}
-.plot-frame.plot-tall{height:clamp(260px,24vw,340px);}
-.plot-frame .shiny-plot-output,.plot-frame .shiny-html-output{width:100%!important;height:100%!important;}
-.plot-frame .shiny-plot-output img,.plot-frame .shiny-plot-output canvas,
-.plot-frame .shiny-html-output img{
-  width:100%!important;height:100%!important;max-width:100%!important;
-  max-height:100%!important;object-fit:contain!important;object-position:center center!important;
-}
-.figure-caption{
-  font-size:.74rem;
-  color:var(--muted);
-  line-height:1.5;
-  border-top:1px solid #E9D5FF;
-  padding-top:.5rem;
-  margin:.45rem 0 0;
-}
-/* Responsive performance figures — bounded size, centered, framed */
-.responsive-figure{
-  display:flex;
-  justify-content:center;
-  padding:8px;
-  box-sizing:border-box;
-  max-width:900px;
-  margin:0 auto;
-}
-.responsive-figure img{
-  display:block;
-  width:auto!important;
-  height:auto!important;
-  max-width:100%;
-  max-height:360px;
-  object-fit:contain;
-  margin:0 auto;
-  border:1px solid #E9D5FF;
-  border-radius:4px;
-}
-.responsive-plot-mobile{display:none;}
-.performance-rail{display:grid;gap:12px;align-content:start;}
-.performance-rail .summary-tile,.performance-rail .note-block{margin:0;}
-.equal-card{height:100%;display:flex;flex-direction:column;}
-.equal-card .card-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
-.equal-card .plot-frame{flex:0 0 auto;}
-.plot-frame,.result-frame{flex:1 1 auto;min-height:0;}
-.result-frame{display:flex;flex-direction:column;justify-content:flex-start;}
-.result-frame.result-map{min-height:clamp(220px,22vw,280px);}
-.result-frame.result-survival,.result-frame.result-dist{min-height:clamp(220px,18vw,280px);}
-/* Solid Cell colour layer */
-.hero-banner{
-  background:#3C5488;
-  border-radius:12px;
-  padding:22px 24px 16px;
-  margin-bottom:18px;
-}
-.hero-banner .hero-copy{margin-bottom:.9rem;}
-.hero-banner .hero-kicker{color:#DDD6FE;}
-.hero-banner .page-title{color:#FFFFFF;}
-.hero-banner .page-title::after{background:#F0ABFC;}
-.hero-banner .page-subtitle{color:rgba(255,255,255,.88);}
-.hero-banner .summary-grid{margin-bottom:0;}
-.hero-banner .summary-tile{
-  background:rgba(255,255,255,.14)!important;
-  border:1px solid rgba(255,255,255,.28)!important;
-  border-top:3px solid #F0ABFC!important;
-}
-.hero-banner .summary-label{color:rgba(255,255,255,.8);}
-.hero-banner .summary-value{color:#FFFFFF;}
-.hero-banner .summary-detail{color:rgba(255,255,255,.84);}
-.chip{background:var(--tint,#F5F3FF);border-top:3px solid var(--tile,var(--accent));}
-.metric-chip{background:var(--tint,#F5F3FF);border-top:3px solid var(--tile,var(--accent));}
-.summary-tile{background:var(--tint,#F5F3FF);border-top:3px solid var(--tile,var(--accent));}
-.stage-tile{background:var(--stint,#F5F3FF);border-top:3px solid var(--stage,var(--accent));}
-.summary-tile.accent-blue{--tile:#06B6D4;--tint:#ECFEFF;--tile-ink:#0E7490;}
-.summary-tile.accent-teal{--tile:#A855F7;--tint:#FAF5FF;--tile-ink:#7E22CE;}
-.summary-tile.accent-navy{--tile:#7C3AED;--tint:#F5F3FF;--tile-ink:#6D28D9;}
-.summary-tile.accent-salmon{--tile:#EC4899;--tint:#FDF2F8;--tile-ink:#BE185D;}
-.summary-tile.accent-crimson{--tile:#DC2626;--tint:#FEF2F2;--tile-ink:#B91C1C;}
-.stage-1{--stage:#06B6D4;--stint:#ECFEFF;--stage-ink:#0E7490;}
-.stage-2{--stage:#7C3AED;--stint:#F5F3FF;--stage-ink:#6D28D9;}
-.stage-3{--stage:#EC4899;--stint:#FDF2F8;--stage-ink:#BE185D;}
-.stage-4{--stage:#F59E0B;--stint:#FFFBEB;--stage-ink:#B45309;}
-.cm-cell.cm-tp,.cm-cell.cm-fn{background:#FEF2F2;border-color:#FECACA;}
-.cm-cell.cm-fp{background:#FFFBEB;border-color:#FDE68A;}
-.cm-cell.cm-tn{background:#ECFEFF;border-color:#A5F3FC;}
-.fig-no{color:#6D28D9;font-weight:800;}/* Misc */
-.disclaimer{
-  color:var(--muted);
-  font-size:.74rem;
-  margin-top:10px;
-  padding-top:10px;
-  border-top:1px solid #E9D5FF;
-  text-align:center;
-  line-height:1.65;
-}
-.methods{font-size:.82rem;line-height:1.58;color:var(--ink);}
-.methods h4{
-  font-size:.68rem;font-weight:800;color:#5B21B6;
-  text-transform:uppercase;letter-spacing:1.2px;margin:16px 0 8px;
-  padding-left:10px;border-left:3px solid var(--accent);
-}
-.methods p{margin:0 0 12px;}
-.bslib-page-fill{height:100dvh!important;}
-.tab-content{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
-.tab-pane.active{flex:1 1 auto;min-height:0;display:flex!important;flex-direction:column;gap:0;}
-.tab-pane.active>*{flex-shrink:0;}
-
-/* Cell journal palette reset: lung cancer uses navy as the primary accent. */
-:root{
-  --red:#E64B35;--blue:#4DBBD5;--teal:#00A087;--navy:#3C5488;--salmon:#F39B7F;
-  --lav:#8491B4;--mint:#91D1C2;--crimson:#DC0000;--brown:#7E6148;--tan:#B09C85;
-  --accent:#3C5488;--accent-dark:#3C5488;--heading:#3C5488;
-  --accent-tint:#F7F9FC;--accent-soft:#EEF2F7;--accent-line:#D7DFEA;
-}
-.navbar{
-  background:#3C5488!important;
-  box-shadow:0 4px 14px rgba(60,84,136,.24)!important;
-}
-.bslib-sidebar-layout>.sidebar{background:var(--accent-tint)!important;}
-.sec,.form-label,.page-title,.card-header,.mc-label,.summary-label,
-.stage-kicker,.section-title,.note-title,.prob-tbl th,.mtbl th,
-.methods h4{color:var(--heading)!important;}
-.form-control:focus,.form-select:focus,
-.selectize-control.single .selectize-input.focus{
-  box-shadow:0 0 0 3px rgba(60,84,136,.16)!important;
-}
-.selectize-control.single .selectize-input{
-  background:var(--surface)!important;
-  color:var(--ink)!important;
-}
-.selectize-control .selectize-input .item{color:var(--heading)!important;}
-.btn-primary:hover{filter:brightness(.88);}
-.card{border-color:var(--accent-line)!important;}
-.card-header{
-  background:var(--accent-tint)!important;
-  border-bottom-color:var(--accent-line)!important;
-}
-.metric-chip,.summary-tile,.stage-tile,.responsive-figure img{
-  border-color:var(--accent-line);
-}
-.nav-tabs{
-  border-bottom-color:var(--accent-line)!important;
-  background:var(--accent-tint)!important;
-}
-.nav-tabs .nav-link{color:var(--heading)!important;}
-.nav-tabs .nav-link:hover{background:var(--accent-soft)!important;}
-.prob-tbl th,.mtbl th{background:var(--accent-tint);}
-.prob-tbl tr:hover td,.mtbl tr:hover td,.mtbl tr.best td{background:var(--accent-tint);}
-.figure-caption,.disclaimer{border-top-color:var(--accent-line);}
-.hero-banner{
-  background:#3C5488!important;
-}
-.hero-banner .hero-kicker,
-.hero-banner .page-title,
-.hero-banner .summary-label{color:#FFFFFF!important;}
-.hero-banner .summary-detail{color:rgba(255,255,255,.84)!important;}
-.hero-banner .page-title::after{background:#F39B7F;}
-.hero-banner .summary-tile{border-top-color:#F39B7F!important;}
-.chip,.metric-chip,.summary-tile{background:var(--tint,var(--accent-soft));}
-.stage-tile{background:var(--stint,var(--accent-soft));}
-.mc-cox,.prob-tbl td.cox{color:#3C5488!important;}
-.mc-aft,.prob-tbl td.aft{color:#00A087!important;}
-.summary-tile.accent-blue{--tile:#4DBBD5;--tint:#EFF8FA;--tile-ink:#3C5488;}
-.summary-tile.accent-teal{--tile:#00A087;--tint:#EFF9F7;--tile-ink:#00A087;}
-.summary-tile.accent-navy{--tile:#3C5488;--tint:#F1F3F7;--tile-ink:#3C5488;}
-.summary-tile.accent-salmon{--tile:#F39B7F;--tint:#FFF4F0;--tile-ink:#E64B35;}
-.summary-tile.accent-crimson{--tile:#DC0000;--tint:#FFF1F0;--tile-ink:#DC0000;}
-.stage-1{--stage:#4DBBD5;--stint:#EFF8FA;--stage-ink:#3C5488;}
-.stage-2{--stage:#3C5488;--stint:#F1F3F7;--stage-ink:#3C5488;}
-.stage-3{--stage:#00A087;--stint:#EFF9F7;--stage-ink:#00A087;}
-.stage-4{--stage:#F39B7F;--stint:#FFF4F0;--stage-ink:#E64B35;}
-.fig-no{color:var(--accent);}
-@media (max-width: 1100px){
-  .summary-grid,.stage-grid,.note-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
-}
-@media (max-width: 900px){
-  html,body{font-size:14px;}
-  .bslib-sidebar-layout>.sidebar{padding:1rem .95rem 1.3rem;}
-  .bslib-sidebar-layout>.main{padding:14px!important;}
-  .page-title{font-size:clamp(1.4rem,6.5vw,1.8rem);}
-  .page-subtitle{font-size:.8rem;}
-  .plot-frame{height:clamp(210px,58vw,290px);}
-  .plot-frame.plot-map{height:clamp(210px,58vw,290px);}
-  .plot-frame.plot-survival{height:clamp(220px,60vw,310px);}
-  .plot-frame.plot-survival-full{height:clamp(250px,68vw,360px);}
-  .plot-frame.plot-tall{height:clamp(250px,68vw,360px);}
-  .result-frame.result-map{min-height:clamp(210px,58vw,290px);}
-  .result-frame.result-survival,.result-frame.result-dist{min-height:clamp(210px,58vw,300px);}
-  .nav-tabs .nav-link{padding:.5rem .8rem;font-size:.74rem;}
-  .prob-row{grid-template-columns:48px minmax(0,1fr) 56px;gap:8px;}
-}
-@media (max-width: 700px){
-  .summary-grid,.stage-grid,.note-grid{grid-template-columns:1fr;}
-  .page-title{font-size:1.42rem;}
-  .navbar{padding:.7rem .85rem;}
-  .responsive-plot-desktop{display:none;}
-  .responsive-plot-mobile{display:flex;}
-  .responsive-figure{max-width:100%;}
-  .responsive-figure img{max-height:440px;}
-}
-"""# ── 5. UI ────────────────────────────────────────────────────────────────────
-
 # Keep the active interface theme in one deployable stylesheet.
 _CSS = (Path(__file__).parent / "theme.css").read_text(encoding="utf-8")
 
@@ -1527,7 +1040,6 @@ def _summary_tile(label: str, value: str, detail: str, accent: str) -> ui.Tag:
 
 def _section_head(kicker: str, title: str, copy: str) -> ui.Tag:
     return ui.tags.div(
-        ui.tags.div(kicker, class_="section-eyebrow"),
         ui.tags.h4(title, class_="section-title"),
         ui.tags.p(copy, class_="section-copy"),
         class_="section-head",
@@ -1589,41 +1101,14 @@ app_ui = ui.page_fluid(
     ui.tags.style(_CSS),
     ui.tags.div(
         ui.tags.div(
-            ui.tags.div("Survival prediction dashboard", class_="hero-kicker"),
             ui.tags.h3("Lung Cancer Survival", class_="page-title"),
             ui.tags.p(
-                "TCGA-LUAD | Compare Cox PH and Log-Logistic AFT projections for overall survival.",
+                "TCGA-LUAD · Cox PH and Log-Logistic AFT models",
                 class_="page-subtitle",
             ),
             class_="hero-copy",
         ),
-        ui.tags.div(
-            _summary_tile(
-                "Cohort",
-                f"{N_TOTAL}",
-                f"{N_TRAIN} training / {N_TEST} test patients",
-                "accent-blue",
-            ),
-            _summary_tile(
-                "Observed events",
-                f"{EV_RATE:.0%}",
-                "overall survival event rate in the full cohort",
-                "accent-teal",
-            ),
-            _summary_tile(
-                "Follow-up",
-                f"{MED_FU:.0f} m",
-                "median observed follow-up time",
-                "accent-navy",
-            ),
-            _summary_tile(
-                "Best test C-index",
-                f"{max(RES_COX['c_index'], RES_AFT['c_index']):.3f}",
-                f"{_best_name} on held-out patients",
-                "accent-salmon",
-            ),
-            class_="summary-grid",
-        ),
+        ui.tags.span("Research use only", class_="app-status"),
         class_="hero-banner",
     ),
 
@@ -1632,8 +1117,8 @@ app_ui = ui.page_fluid(
             "Patient Prediction",
             _section_head(
                 "Individual prediction",
-                "Patient-specific survival estimates",
-                "Compare Cox PH and parametric AFT survival estimates for one patient across clinically relevant time points.",
+                "Patient prediction",
+                "Enter a patient profile to compare overall survival estimates from two models.",
             ),
             ui.tags.div(
                 _input_panel(),
@@ -1682,6 +1167,27 @@ app_ui = ui.page_fluid(
                 "Review stage composition, compare candidate marginal survival distributions, and view aggregate visitor activity.",
             ),
             ui.tags.div(
+                _summary_tile(
+                    "Cohort",
+                    f"{N_TOTAL}",
+                    f"{N_TRAIN} training / {N_TEST} test patients",
+                    "accent-blue",
+                ),
+                _summary_tile(
+                    "Observed events",
+                    f"{EV_RATE:.0%}",
+                    "overall survival event rate in the full cohort",
+                    "accent-teal",
+                ),
+                _summary_tile(
+                    "Follow-up",
+                    f"{MED_FU:.0f} m",
+                    "median observed follow-up time",
+                    "accent-navy",
+                ),
+                class_="summary-grid cohort-summary",
+            ),
+            ui.tags.div(
                 _stage_tile("1"),
                 _stage_tile("2"),
                 _stage_tile("3"),
@@ -1690,9 +1196,6 @@ app_ui = ui.page_fluid(
             ),
             ui.layout_columns(
                 ui.card(
-                    ui.card_header(
-                        "Marginal Survival Distribution — Training Data"
-                    ),
                     ui.tags.div(
                         ui.output_ui("dist_plot"),
                         class_="chart-image chart-square",
@@ -1762,6 +1265,11 @@ app_ui = ui.page_fluid(
                 "Performance comparison",
                 "Training and test performance",
                 "Compare discrimination, prediction error, uncertainty, and training-to-test differences for both survival models.",
+            ),
+            ui.tags.p(
+                f"Best held-out C-index: {max(RES_COX['c_index'], RES_AFT['c_index']):.3f} "
+                f"({_best_name}). Training metrics represent apparent performance.",
+                class_="evaluation-context",
             ),
             ui.output_ui("perf_chips"),
             ui.tags.div(
