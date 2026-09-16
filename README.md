@@ -9,7 +9,13 @@ An interactive [Shiny for Python](https://shiny.posit.co/py/) dashboard that com
 
 ## Application preview
 
-![Lung cancer survival dashboard](assets/lung_cancer_app.png)
+| Patient-specific prediction | Cohort overview |
+|---|---|
+| [![Lung cancer patient survival prediction](assets/lung_cancer_app.png)](assets/lung_cancer_app.png) | [![Lung cancer cohort overview](assets/lung_cancer_cohort.png)](assets/lung_cancer_cohort.png) |
+
+### Model evaluation
+
+[![Lung cancer model evaluation](assets/lung_cancer_evaluation.png)](assets/lung_cancer_evaluation.png)
 
 ## Overview
 
