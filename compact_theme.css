@@ -1,6 +1,7 @@
 /* Compact clinical dashboard using a restrained Cell navy accent. */
 :root {
   color-scheme: light;
+  --app-scale: 1.125;
   --ink: #242424;
   --ink-soft: #424242;
   --muted: #616161;
@@ -27,6 +28,7 @@ html, body {
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
+body { zoom: var(--app-scale); }
 
 .dashboard-shell {
   width: 100%;
@@ -63,6 +65,18 @@ html, body {
   background: var(--surface);
   color: var(--muted);
   font-size: 12px;
+}
+.hero-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
+.text-scale-label { margin: 0 0 0 4px; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.text-scale-select {
+  width: auto;
+  height: 32px;
+  padding: 4px 28px 4px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background-color: var(--surface);
+  color: var(--ink);
+  font: 600 12px Arial, Helvetica, sans-serif;
 }
 
 /* Global tabs remain compact and use color only for the active state. */
@@ -332,7 +346,8 @@ table:has(tbody td:nth-child(6).num) th:nth-child(6) { text-align: right; }
 @media (max-width: 700px) {
   .dashboard-shell { padding-right: 9px; padding-left: 9px; }
   .hero-banner { align-items: flex-start; gap: 10px; }
-  .app-status { display: none; }
+  .app-status, .text-scale-label { display: none; }
+  .hero-actions { margin-left: auto; }
   .dashboard-shell > .nav-tabs { overflow-x: auto; }
   .dashboard-shell > .nav-tabs > .nav-item { flex: 0 0 auto; }
   .dashboard-shell > .nav-tabs .nav-link { width: auto; padding-right: 13px; padding-left: 13px; }
