@@ -1040,6 +1040,7 @@ def _summary_tile(label: str, value: str, detail: str, accent: str) -> ui.Tag:
 
 def _section_head(kicker: str, title: str, copy: str) -> ui.Tag:
     return ui.tags.div(
+        ui.tags.div(kicker, class_="section-kicker"),
         ui.tags.h4(title, class_="section-title"),
         ui.tags.p(copy, class_="section-copy"),
         class_="section-head",
@@ -1101,6 +1102,7 @@ app_ui = ui.page_fluid(
     ui.tags.style(_CSS),
     ui.tags.div(
         ui.tags.div(
+            ui.tags.div("Survival modeling workbench", class_="hero-kicker"),
             ui.tags.h3("Lung Cancer Survival", class_="page-title"),
             ui.tags.p(
                 "TCGA-LUAD · Cox PH and Log-Logistic AFT models",
