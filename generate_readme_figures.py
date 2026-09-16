@@ -223,15 +223,7 @@ def _model_performance_figure(bundle: dict) -> None:
             markersize=4,
             markerfacecolor=row["color"] if index == 0 else "white",
             markeredgecolor=row["color"],
-        )
-        ax.text(
-            66.0,
-            float(auc_values[-1]),
-            "Cox" if index == 0 else "AFT",
-            va="center",
-            ha="right",
-            fontsize=6.4,
-            color=row["color"],
+            label=row["name"],
         )
     ax.axhline(0.5, color=REFERENCE_COLOR, linewidth=0.8, linestyle="--")
     ax.set_xlim(10, 67)
@@ -240,10 +232,12 @@ def _model_performance_figure(bundle: dict) -> None:
     ax.set_xlabel("Time since diagnosis (months)")
     ax.set_ylabel("Time-dependent AUC")
     ax.set_title("C. Time-dependent discrimination", loc="left")
+    ax.legend(loc="upper right", frameon=False)
     ax.text(
         0.02,
         0.09,
-        "Mean AUC: Cox 0.748; AFT 0.758",
+        f"Mean AUC: Cox {model_rows[0]['test']['mean_auc']:.3f}; "
+        f"AFT {model_rows[1]['test']['mean_auc']:.3f}",
         transform=ax.transAxes,
         fontsize=6.2,
     )
