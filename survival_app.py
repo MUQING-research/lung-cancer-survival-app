@@ -1046,40 +1046,30 @@ def _section_head(_kicker: str, title: str, copy: str) -> ui.Tag:
     )
 
 
-def _context_item(label: str, value: str, detail: str) -> ui.Tag:
+def _hero_metadata() -> ui.Tag:
     return ui.tags.div(
-        ui.tags.div(label, class_="context-label"),
-        ui.tags.div(value, class_="context-value"),
-        ui.tags.div(detail, class_="context-detail"),
-        class_="context-item",
-    )
-
-
-def _prediction_data_context() -> ui.Tag:
-    return ui.tags.section(
-        ui.tags.div(
-            ui.tags.h5("Data and split", class_="context-title"),
-            ui.tags.p(
-                "The deployed models use the fixed development split summarized below.",
-                class_="context-copy",
-            ),
-            class_="context-heading",
+        ui.tags.span(ui.tags.strong(f"{N_TOTAL}"), " patients", class_="hero-meta-item"),
+        ui.tags.span(
+            ui.tags.strong(f"{N_TRAIN} / {N_TEST}"),
+            " train / test",
+            class_="hero-meta-item",
         ),
-        ui.tags.div(
-            _context_item("Dataset", "TCGA-LUAD", "Clinical overall-survival cohort"),
-            _context_item("Outcome", "Overall survival", f"{EV_RATE:.0%} observed event rate"),
-            _context_item("Cohort", f"{N_TOTAL} patients", "Eligible records in the final cohort"),
-            _context_item("Train / test", f"{N_TRAIN} / {N_TEST}", "Patients in each partition"),
-            _context_item("Split protocol", "80 / 20", f"Event-stratified, seed {SEED}"),
-            _context_item("Model inputs", f"{len(FEAT_COLS)} variables", "Age, stage, T, N, and M"),
-            class_="context-grid",
+        ui.tags.span(
+            ui.tags.strong("80 / 20"),
+            f" event-stratified, seed {SEED}",
+            class_="hero-meta-item",
         ),
-        ui.tags.p(
-            f"Preprocessing and model fitting used the training partition only. "
-            f"The held-out test partition is reserved for evaluation; predictions compare Cox PH with {DIST['best']} AFT.",
-            class_="context-note",
+        ui.tags.span(ui.tags.strong(f"{EV_RATE:.0%}"), " observed events", class_="hero-meta-item"),
+        ui.tags.span(
+            ui.tags.strong(f"{len(FEAT_COLS)}"),
+            " inputs: age, stage, T, N, M",
+            class_="hero-meta-item",
         ),
-        class_="data-context",
+        ui.tags.span(
+            "Training-only preprocessing; held-out test evaluation.",
+            class_="hero-meta-note",
+        ),
+        class_="hero-meta",
         **{"aria-label": "Dataset and split summary"},
     )
 
@@ -1144,6 +1134,7 @@ app_ui = ui.page_fluid(
                 f"TCGA-LUAD | Cox PH and {DIST['best']} AFT models",
                 class_="page-subtitle",
             ),
+            _hero_metadata(),
             class_="hero-copy",
         ),
         ui.tags.span("Research use only", class_="app-status"),
@@ -1158,7 +1149,6 @@ app_ui = ui.page_fluid(
                 "Patient prediction",
                 "Enter a patient profile to compare overall survival estimates from two models.",
             ),
-            _prediction_data_context(),
             ui.tags.div(
                 _input_panel(),
                 ui.tags.div(
