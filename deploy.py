@@ -20,6 +20,7 @@ RUNTIME_FILES = (
     "tcga_luad_app_bundle.pkl",
     "eda_decisions.json",
     "theme.css",
+    "compact_theme.css",
     "world.geojson",
     "requirements.txt",
 )

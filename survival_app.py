@@ -1020,7 +1020,7 @@ print("  Static figures rendered.", flush=True)
 # ── 4. CSS (Cell Press style) ────────────────────────────────────────────────
 
 # Keep the active interface theme in one deployable stylesheet.
-_CSS = (Path(__file__).parent / "theme.css").read_text(encoding="utf-8")
+_CSS = (Path(__file__).parent / "compact_theme.css").read_text(encoding="utf-8")
 
 
 _stage_lbl  = {"1": "I",  "2": "II",  "3": "III",  "4": "IV"}
@@ -1038,12 +1038,49 @@ def _summary_tile(label: str, value: str, detail: str, accent: str) -> ui.Tag:
     )
 
 
-def _section_head(kicker: str, title: str, copy: str) -> ui.Tag:
+def _section_head(_kicker: str, title: str, copy: str) -> ui.Tag:
     return ui.tags.div(
-        ui.tags.div(kicker, class_="section-kicker"),
         ui.tags.h4(title, class_="section-title"),
         ui.tags.p(copy, class_="section-copy"),
         class_="section-head",
+    )
+
+
+def _context_item(label: str, value: str, detail: str) -> ui.Tag:
+    return ui.tags.div(
+        ui.tags.div(label, class_="context-label"),
+        ui.tags.div(value, class_="context-value"),
+        ui.tags.div(detail, class_="context-detail"),
+        class_="context-item",
+    )
+
+
+def _prediction_data_context() -> ui.Tag:
+    return ui.tags.section(
+        ui.tags.div(
+            ui.tags.h5("Data and split", class_="context-title"),
+            ui.tags.p(
+                "The deployed models use the fixed development split summarized below.",
+                class_="context-copy",
+            ),
+            class_="context-heading",
+        ),
+        ui.tags.div(
+            _context_item("Dataset", "TCGA-LUAD", "Clinical overall-survival cohort"),
+            _context_item("Outcome", "Overall survival", f"{EV_RATE:.0%} observed event rate"),
+            _context_item("Cohort", f"{N_TOTAL} patients", "Eligible records in the final cohort"),
+            _context_item("Train / test", f"{N_TRAIN} / {N_TEST}", "Patients in each partition"),
+            _context_item("Split protocol", "80 / 20", f"Event-stratified, seed {SEED}"),
+            _context_item("Model inputs", f"{len(FEAT_COLS)} variables", "Age, stage, T, N, and M"),
+            class_="context-grid",
+        ),
+        ui.tags.p(
+            f"Preprocessing and model fitting used the training partition only. "
+            f"The held-out test partition is reserved for evaluation; predictions compare Cox PH with {DIST['best']} AFT.",
+            class_="context-note",
+        ),
+        class_="data-context",
+        **{"aria-label": "Dataset and split summary"},
     )
 
 
@@ -1102,10 +1139,9 @@ app_ui = ui.page_fluid(
     ui.tags.style(_CSS),
     ui.tags.div(
         ui.tags.div(
-            ui.tags.div("Survival modeling workbench", class_="hero-kicker"),
-            ui.tags.h3("Lung Cancer Survival", class_="page-title"),
+            ui.tags.h1("Lung Cancer Survival", class_="page-title"),
             ui.tags.p(
-                "TCGA-LUAD · Cox PH and Log-Logistic AFT models",
+                f"TCGA-LUAD | Cox PH and {DIST['best']} AFT models",
                 class_="page-subtitle",
             ),
             class_="hero-copy",
@@ -1122,6 +1158,7 @@ app_ui = ui.page_fluid(
                 "Patient prediction",
                 "Enter a patient profile to compare overall survival estimates from two models.",
             ),
+            _prediction_data_context(),
             ui.tags.div(
                 _input_panel(),
                 ui.tags.div(
