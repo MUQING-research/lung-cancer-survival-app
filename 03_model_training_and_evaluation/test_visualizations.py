@@ -1,17 +1,30 @@
+# Module guide:
+# - Role: Train, evaluate, or test the survival modelling workflow.
+# - Workflow: Compare Cox, AFT, and related survival utilities on train and test partitions and validate visualizations.
+# - Design note: Keep regression tests focused on reproducible bundle contents and evaluation contracts.
 """Regression checks for complete, legible, fixed-ratio frontend figures."""
 
 import base64
 import struct
+import sys
 import unittest
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import survival_app as application
-import chart_views as charts
+import visualizations as charts
 
 
-class ChartViewTests(unittest.TestCase):
+# Class guide: VisualizationTests is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
+class VisualizationTests(unittest.TestCase):
+    # Function guide: test_patient_curve_uses_balanced_desktop_aspect is responsible for test patient curve uses balanced desktop aspect.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def test_patient_curve_uses_balanced_desktop_aspect(self):
         times = np.linspace(0, 72, 145)
         for narrow, expected in ((False, (5.5, 3.2)), (True, (3.5, 3.0))):
@@ -23,6 +36,9 @@ class ChartViewTests(unittest.TestCase):
             finally:
                 plt.close(fig)
 
+    # Function guide: figures is responsible for perform the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def figures(self):
         data = vars(application)
         times = np.linspace(0, 72, 145)
@@ -34,6 +50,9 @@ class ChartViewTests(unittest.TestCase):
             charts.survival_figure(times, first, second, narrow=True),
         ]
 
+    # Function guide: test_figure_bounds_style_and_png_dimensions is responsible for test figure bounds style and png dimensions.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def test_figure_bounds_style_and_png_dimensions(self):
         for fig in self.figures():
             with self.subTest(title=fig.axes[0].get_title(loc="left")):

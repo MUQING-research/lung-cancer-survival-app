@@ -11,11 +11,11 @@ An interactive [Shiny for Python](https://shiny.posit.co/py/) dashboard that com
 
 | Patient-specific prediction | Cohort overview |
 |---|---|
-| [![Lung cancer patient survival prediction](assets/lung_cancer_app.png)](assets/lung_cancer_app.png) | [![Lung cancer cohort overview](assets/lung_cancer_cohort.png)](assets/lung_cancer_cohort.png) |
+| [![Lung cancer patient survival prediction](docs/assets/lung_cancer_app.png)](docs/assets/lung_cancer_app.png) | [![Lung cancer cohort overview](docs/assets/lung_cancer_cohort.png)](docs/assets/lung_cancer_cohort.png) |
 
 ### Model evaluation
 
-[![Lung cancer model evaluation](assets/lung_cancer_evaluation.png)](assets/lung_cancer_evaluation.png)
+[![Lung cancer model evaluation](docs/assets/lung_cancer_evaluation.png)](docs/assets/lung_cancer_evaluation.png)
 
 ## Overview
 
@@ -64,7 +64,7 @@ The fixed split contains 407 training patients and 102 held-out test patients. I
 
 ### Predictors
 
-The current `tcga_luad_app_bundle.pkl` uses five clinical predictors:
+The current `tcga_luad_survival_model_bundle.pkl` uses five clinical predictors:
 
 1. age at diagnosis;
 2. AJCC pathologic stage;
@@ -72,7 +72,7 @@ The current `tcga_luad_app_bundle.pkl` uses five clinical predictors:
 4. pathologic N category; and
 5. pathologic M category.
 
-Missing age is imputed with the training median; missing stage categories use training modes. Training-only Cox partial-likelihood LRTs select a 3-knot cubic spline for age and reference-level dummy coding for overall stage and N category. T category remains integer-coded and M remains binary. The fitted transformations and reference categories are saved in `eda_decisions.json`. Users must preserve the coding and units expected by the application.
+Missing age is imputed with the training median; missing stage categories use training modes. Training-only Cox partial-likelihood LRTs select a 3-knot cubic spline for age and reference-level dummy coding for overall stage and N category. T category remains integer-coded and M remains binary. The fitted transformations and reference categories are saved in `preprocessing_decisions.json`. Users must preserve the coding and units expected by the application.
 
 ## Outcome and prediction semantics
 
@@ -96,23 +96,23 @@ The following values describe the checked-in bundle and its fixed 80/20 split. T
 
 Test C-index confidence intervals use 150 bootstrap resamples. Integrated Brier Score and cumulative/dynamic AUC are evaluated at 12, 24, 36, 48, and 60 months after restricting evaluation times to the observed support of both splits.
 
-For test IPCW metrics, follow-up beyond the last supported evaluation horizon is administratively censored just after that horizon. This preserves earlier case/control status and prevents irrelevant late events from exceeding training censoring support. The original outcomes are retained for C-index and bootstrap intervals. Runtime and model checks can be reproduced with `python -m unittest validate_model -v`; the source-cache check is skipped when raw data is intentionally absent.
+For test IPCW metrics, follow-up beyond the last supported evaluation horizon is administratively censored just after that horizon. This preserves earlier case/control status and prevents irrelevant late events from exceeding training censoring support. Five-fold cross-validation is used for Cox penalizer selection as internal validation; the fixed 20% holdout is reserved for final test-set evaluation. The model checks can be reproduced with `python -m unittest discover -s 03_model_training_and_evaluation -p "test_*.py" -v`; the source-cache check is skipped when raw data is intentionally absent.
 
 ### Model evaluation figures
 
-All figures below are rendered from `tcga_luad_app_bundle.pkl`. No raw clinical feature records are required to reproduce them. They use the shared Cell red/blue/teal palette with navy typography and can be regenerated with `python generate_readme_figures.py`.
+All figures below are rendered from `04_model_deployment/tcga_luad_survival_model_bundle.pkl`. No raw clinical feature records are required to reproduce them. They use the shared Cell red/blue/teal palette with navy typography and can be regenerated with `python docs/generate_readme_figures.py`.
 
 #### Discrimination and prediction error
 
 Panel A compares apparent training C-index with held-out test C-index and its bootstrap interval. Panel B compares train/test integrated Brier scores. Panel C shows held-out cumulative/dynamic AUC. The time-specific Brier score curve is intentionally omitted.
 
-![Train and test concordance, integrated Brier score, and time-dependent AUC](assets/model_performance.png)
+![Train and test concordance, integrated Brier score, and time-dependent AUC](docs/assets/model_performance.png)
 
 #### Parametric distribution selection
 
 The training-set Kaplan-Meier curve is compared with four marginal parametric survival distributions. Log-Logistic had the lowest AIC (1579.1) and was therefore used for the covariate-adjusted AFT model. Exact AIC and BIC values remain available in the application table.
 
-![Kaplan-Meier curve and fitted parametric survival distributions](assets/marginal_survival_fit.png)
+![Kaplan-Meier curve and fitted parametric survival distributions](docs/assets/marginal_survival_fit.png)
 
 ## Run locally
 
@@ -141,19 +141,19 @@ Install dependencies and start the app:
 
 ```bash
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-shiny run --reload app.py
+python -m pip install -r 04_model_deployment/requirements.txt
+shiny run --reload 04_model_deployment/app.py
 ```
 
 Open the local URL printed by Shiny, normally `http://127.0.0.1:8000`.
 
-The app loads `tcga_luad_app_bundle.pkl` at startup. Keep the bundle beside `survival_app.py` when packaging or deploying the application.
+The app loads `04_model_deployment/tcga_luad_survival_model_bundle.pkl` at startup. The `04_model_deployment/` directory is the self-contained deployment package.
 
 ## Deployment bundle
 
 The tracked bundle contains fitted models, imputation statistics, outcome labels, survival probability matrices, evaluation metrics, marginal distribution fits, and aggregate cohort summaries. It does not contain raw training or test feature tables.
 
-If the bundle is absent, the application can retrieve TCGA-LUAD clinical data from the GDC API, fit the models, and create the bundle. Model training is intentionally kept outside normal deployed startup by checking in the sanitized bundle.
+If the bundle is absent, the application can retrieve TCGA-LUAD clinical data from the GDC API, fit the models, and create the bundle. Use `python 03_model_training_and_evaluation/train_and_export_model_bundle.py` for an explicit offline rebuild; normal deployment loads the checked-in bundle.
 
 ## Deployment
 
@@ -161,23 +161,27 @@ The repository includes a shinyapps.io deployment helper:
 
 ```bash
 python -m pip install rsconnect-python
-python deploy.py
+python 04_model_deployment/deploy.py
 ```
 
-Configure `rsconnect` credentials before running the helper from the Python 3.13 environment matching `requirements.txt`. Run `python deploy.py --check` for a local preflight. The helper updates the existing `medictio/nsclc-survival` app, checks pinned package versions, and uploads only the runtime file allowlist, including the precomputed model bundle and stylesheet.
+Configure `rsconnect` credentials before running the helper from the Python 3.13 environment matching `04_model_deployment/requirements.txt`. Run `python 04_model_deployment/deploy.py --check` for a local preflight. The helper updates the existing `medictio/nsclc-survival` app, checks pinned package versions, and uploads only the runtime file allowlist from `04_model_deployment/`; training, tests, docs, and GitHub helpers are excluded.
+
+Keep shinyapps.io's package cache enabled so unchanged runtime dependencies are reused between deployments.
 
 The pinned `scikit-survival==0.25.0` supports `scikit-learn==1.7.2`; this compatibility is documented in the [versioned installation guide](https://scikit-survival.readthedocs.io/en/v0.25.0/install.html).
 
 For another hosting workflow, package at least:
 
-- `app.py`
-- `survival_app.py`
-- `survival_core.py`
-- `tcga_luad_app_bundle.pkl`
-- `eda_decisions.json`
-- `requirements.txt`
-- `theme.css`
-- `world.geojson` if the visitor map is enabled
+- `04_model_deployment/app.py`
+- `04_model_deployment/survival_app.py`
+- `04_model_deployment/survival_core.py`
+- `04_model_deployment/tcga_luad_survival_model_bundle.pkl`
+- `04_model_deployment/preprocessing_decisions.json`
+- `04_model_deployment/clean_clinical_data.py`
+- `04_model_deployment/survival_preprocessing.py`
+- `04_model_deployment/requirements.txt`
+- `04_model_deployment/compact_theme.css`
+- `04_model_deployment/world.geojson` if the visitor map is enabled
 
 Do not replace the deployment bundle with raw patient-level feature tables.
 
@@ -197,21 +201,35 @@ The shinyapps.io deployment helper does not forward environment variables: that 
 
 ```text
 .
-|-- app.py                         # Minimal Shiny entry point
-|-- survival_app.py                # Data handling, UI, server, and figures
-|-- survival_core.py               # Survival models and evaluation helpers
-|-- generate_readme_figures.py     # Reproducible README figure generator
-|-- tcga_luad_app_bundle.pkl       # Sanitized model and evaluation bundle
-|-- eda_decisions.json             # Training-only preprocessing decisions and provenance
-|-- bundle_survival.py             # Canonical offline rebuild entry point
-|-- validate_model.py              # Model, bundle, and IPCW regression checks
-|-- theme.css                      # Active application stylesheet
-|-- assets/                        # App preview and model figures for this README
-|-- requirements.txt               # Runtime dependencies
-|-- deploy.py                      # shinyapps.io deployment helper
-|-- Dockerfile                     # Container definition
-|-- upload.py                      # Hugging Face Space upload helper
-`-- world.geojson                  # Basemap used by visitor analytics
+|-- 01_data_cleaning/              # Source download, outcome construction, and audit
+|   `-- clean_clinical_data.py
+|-- 02_data_preprocessing/         # Training-only imputation and functional-form processing
+|   `-- survival_preprocessing.py
+|-- 03_model_training_and_evaluation/ # Model fitting, test evaluation, and regression checks
+|   |-- train_and_export_model_bundle.py
+|   |-- test_survival_pipeline.py
+|   `-- test_visualizations.py
+|-- 04_model_deployment/           # Self-contained Shiny runtime and deployment package
+|   |-- app.py
+|   |-- survival_app.py
+|   |-- survival_core.py
+|   |-- visualizations.py
+|   |-- clean_clinical_data.py
+|   |-- survival_preprocessing.py
+|   |-- tcga_luad_survival_model_bundle.pkl
+|   |-- preprocessing_decisions.json
+|   |-- requirements.txt
+|   |-- deploy.py
+|   `-- world.geojson
+|-- 05_github_publishing/          # GitHub publishing helper
+|   |-- publish_github.py
+|   `-- README.md
+|-- archive/                       # Historical wrappers and artifacts
+|-- docs/                          # README figures and publication assets
+|   |-- generate_readme_figures.py
+|   `-- assets/
+|-- .github/                       # Continuous-integration workflow
+`-- README.md
 ```
 
 ## Limitations

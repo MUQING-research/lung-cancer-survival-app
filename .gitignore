@@ -7,3 +7,5 @@ rsconnect-python/
 venv/
 output/
 .playwright-cli/
+03_model_training_and_evaluation/.cache/
+04_model_deployment/.cache/

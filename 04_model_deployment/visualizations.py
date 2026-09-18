@@ -1,3 +1,7 @@
+# Module guide:
+# - Role: Provide reusable survival plotting helpers.
+# - Workflow: Turn precomputed model metrics and survival curves into publication-style figures.
+# - Design note: Keep plotting functions independent from raw patient-level tables.
 """Readable, self-contained Cell-style figures for the application UI."""
 
 from __future__ import annotations
@@ -37,6 +41,9 @@ CELL_COLORS = [
 ]
 
 
+# Function guide: canvas is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def canvas(title, wide=False):
     # Compact UI renditions keep publication typography without empty gutters.
     fig, ax = plt.subplots(figsize=(5.5, 3.2) if wide else (3.5, 3.0))
@@ -47,6 +54,9 @@ def canvas(title, wide=False):
     return fig, ax
 
 
+# Function guide: finish is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def finish(fig, caption):
     """Reserve a real caption region inside the image, outside the data axes."""
     wide = fig.get_figwidth() > 5
@@ -59,6 +69,9 @@ def finish(fig, caption):
     return fig
 
 
+# Function guide: png is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def png(fig):
     buffer = io.BytesIO()
     with mpl.rc_context({"savefig.bbox": None}):
@@ -67,11 +80,17 @@ def png(fig):
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
+# Function guide: legend is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def legend(ax, **kwargs):
     return ax.legend(frameon=True, facecolor="white", framealpha=0.94,
                      edgecolor="none", fontsize=8, **kwargs)
 
 
+# Function guide: cindex_figure is responsible for perform figure.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def cindex_figure(data):
     fig, ax = canvas("Concordance | C-index")
     for index, (name, result, train) in enumerate((
@@ -97,6 +116,9 @@ def cindex_figure(data):
                   "Test CI: 150 bootstraps.")
 
 
+# Function guide: auc_figure is responsible for perform figure.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def auc_figure(data):
     fig, ax = canvas("Time-dependent discrimination")
     for index, (name, result) in enumerate((("Cox PH", data["RES_COX"]), ("AFT", data["RES_AFT"]))):
@@ -111,6 +133,9 @@ def auc_figure(data):
                   "Training-based IPCW; dotted line: chance.")
 
 
+# Function guide: distribution_figure is responsible for perform figure.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def distribution_figure(data):
     fig, ax = canvas("Marginal survival fits")
     times, survival = data["_survival_function_frame"](data["KM_TRAIN"])
@@ -129,6 +154,9 @@ def distribution_figure(data):
                   "Censoring-aware marginal fits; best: lowest AIC.")
 
 
+# Function guide: survival_figure is responsible for perform figure.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def survival_figure(times, cox, aft, narrow=False):
     fig, ax = canvas("Patient survival projections", wide=not narrow)
     ax.plot(times, cox, color=CELL_COLORS[0], linewidth=1, label="Cox PH")

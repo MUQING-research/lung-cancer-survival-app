@@ -1,8 +1,12 @@
+# Module guide:
+# - Role: Define the survival model source of truth.
+# - Workflow: Centralize feature schema, preprocessing estimators, model factories, tuning, and evaluation utilities.
+# - Design note: Keep deployed bundle construction and evaluation rules synchronized with the app.
 """
 survival_core — NSCLC Overall Survival Prediction
 ==================================================
-Single source of truth for feature schema, data simulation, model factory
-and evaluation suite used by the pipeline (survival_model.py).
+Single source of truth for survival feature schema, preprocessing estimators,
+model factories, and evaluation utilities used by survival_app.py.
 
 Clinical context
 ----------------
@@ -13,10 +17,10 @@ Survival calibrated to published stage-specific median OS (SEER):
 
 Models
 ------
-1. Cox Proportional Hazards  — lifelines, L2-regularised, penaliser tuned by CV
-2. Parametric AFT             — best marginal distribution by AIC (Weibull / Log-Normal / Log-Logistic)
-3. Random Survival Forest     — sksurv + Optuna (40 trials, 5-fold CV)
-4. DeepSurv                   — pycox / PyTorch MLP + Optuna (15 trials, hold-out val)
+1. Cox Proportional Hazards — lifelines, L2-regularised, penaliser tuned by CV
+2. Parametric AFT            — best marginal distribution by AIC
+3. Random Survival Forest and DeepSurv utilities are retained for research
+   experiments and are not part of the current deployed bundle.
 
 Evaluation: bootstrap C-index (95 % CI), Integrated Brier Score,
 time-dependent AUC, calibration at 12/24/36/60 months.
@@ -34,11 +38,13 @@ import tempfile
 import warnings
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 # ── ASCII temp dir (CJK Windows usernames crash joblib) ─────────────────────
 
+# Function guide: _ensure_ascii_joblib_tmp is responsible for perform ascii joblib tmp.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _ensure_ascii_joblib_tmp() -> None:
     if os.environ.get("JOBLIB_TEMP_FOLDER"):
         return
@@ -78,15 +84,11 @@ from lifelines import (
 
 import sksurv
 from sksurv.util import Surv
-from sksurv.ensemble import RandomSurvivalForest
 from sksurv.metrics import (
     concordance_index_censored,
     integrated_brier_score,
     cumulative_dynamic_auc,
 )
-
-import optuna
-optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 _DEEPSURV_AVAILABLE = False
 try:
@@ -106,6 +108,9 @@ CELL_COLORS = [
 ]
 
 
+# Function guide: apply_cell_matplotlib_style is responsible for apply cell matplotlib style.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def apply_cell_matplotlib_style(**overrides) -> None:
     """Apply Cell-style matplotlib defaults for app and report figures."""
     params = {
@@ -139,6 +144,9 @@ def apply_cell_matplotlib_style(**overrides) -> None:
 # ── 1. Feature schema ────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
+# Class guide: Feature is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 class Feature:
     name: str
     display: str
@@ -213,6 +221,9 @@ MODEL_COLORS = {
 
 # ── 2. Data simulation ───────────────────────────────────────────────────────
 
+# Function guide: generate_nsclc_cohort is responsible for generate the synthetic survival cohort.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def generate_nsclc_cohort(n: int = 1000, seed: int = SEED) -> pd.DataFrame:
     """
     Simulate a realistic NSCLC cohort with clinically calibrated correlations.
@@ -347,7 +358,7 @@ def generate_nsclc_cohort(n: int = 1000, seed: int = SEED) -> pd.DataFrame:
     })
 
 
-# ── 3. Feature preprocessing (one-hot encode categoricals; keep ordinal/cont) 
+# ── 3. Feature preprocessing (one-hot encode categoricals; keep ordinal/cont)
 
 _BASE_COLS = [
     "age", "sex_male", "ecog_ps", "stage",
@@ -355,6 +366,9 @@ _BASE_COLS = [
     "bmi", "egfr_mutation", "nlr",
 ]
 
+# Function guide: preprocess is responsible for preprocess the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def preprocess(df: pd.DataFrame) -> pd.DataFrame:
     """Return model-ready DataFrame (no time/event cols). Columns are stable across splits."""
     out = df[_BASE_COLS].copy().astype(float)
@@ -365,15 +379,24 @@ def preprocess(df: pd.DataFrame) -> pd.DataFrame:
     out["treat_targeted"]= (df["treatment"] == 3).astype(float)
     return out
 
+# Function guide: PROC_COLS is responsible for perform COLS.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def PROC_COLS(df: pd.DataFrame) -> list[str]:
     return preprocess(df).columns.tolist()
 
 
 # ── 4. Distribution testing (univariate; guides AFT family choice) ───────────
 
+# Class guide: ClinicalImputer is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 class ClinicalImputer(BaseEstimator, TransformerMixin):
     """Median for age; observed-category mode for ordered and binary stages."""
 
+    # Function guide: fit is responsible for fit the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def fit(self, X, y=None):
         self.feature_names_in_ = np.asarray(X.columns, dtype=object)
         values = []
@@ -385,15 +408,24 @@ class ClinicalImputer(BaseEstimator, TransformerMixin):
         self.statistics_ = np.asarray(values, dtype=float)
         return self
 
+    # Function guide: transform is responsible for transform the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def transform(self, X):
         if list(X.columns) != list(self.feature_names_in_):
             raise ValueError("Clinical feature columns differ from the fitted schema.")
         return X.astype(float).fillna(dict(zip(self.feature_names_in_, self.statistics_))).to_numpy()
 
 
+# Class guide: ClinicalPreprocessor is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 class ClinicalPreprocessor(BaseEstimator, TransformerMixin):
     """Training-only imputation and survival-appropriate functional screening."""
 
+    # Function guide: fit is responsible for fit the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def fit(self, X, y):
         self.imputer_ = ClinicalImputer().fit(X)
         self.feature_names_in_ = self.imputer_.feature_names_in_
@@ -434,6 +466,9 @@ class ClinicalPreprocessor(BaseEstimator, TransformerMixin):
         self.output_columns_ = self.transform(X).columns.tolist()
         return self
 
+    # Function guide: transform is responsible for transform the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def transform(self, X):
         values = pd.DataFrame(self.imputer_.transform(X), columns=X.columns, index=X.index)
         result = pd.DataFrame(index=X.index)
@@ -454,6 +489,9 @@ class ClinicalPreprocessor(BaseEstimator, TransformerMixin):
         return result
 
 
+# Function guide: validate_clinical_inputs is responsible for validate clinical inputs.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def validate_clinical_inputs(values):
     """Validate server-side values before invoking either prediction model."""
     result = {}
@@ -472,6 +510,9 @@ def validate_clinical_inputs(values):
     return result
 
 
+# Function guide: audit_clinical_preprocessing is responsible for audit clinical preprocessing.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def audit_clinical_preprocessing(df_all, df_train, features, cox, imputer):
     """Record training-only diagnostics for an existing survival specification.
 
@@ -534,14 +575,23 @@ def audit_clinical_preprocessing(df_all, df_train, features, cox, imputer):
     return decisions, diagnostics
 
 
+# Class guide: ExponentialAFTFitter is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 class ExponentialAFTFitter(ParametricRegressionFitter):
     """Exponential AFT regression with fixed Weibull shape of exactly one."""
 
     _fitted_parameter_names = ["lambda_"]
 
+    # Function guide: _cumulative_hazard is responsible for perform hazard.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def _cumulative_hazard(self, params, T, Xs):
         return T / anp.exp(anp.dot(Xs["lambda_"], params["lambda_"]))
 
+    # Function guide: fit is responsible for fit the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def fit(self, df, duration_col, event_col=None, **kwargs):
         features = [c for c in df.columns if c not in (duration_col, event_col)]
         return super().fit(
@@ -549,12 +599,18 @@ class ExponentialAFTFitter(ParametricRegressionFitter):
             regressors={"lambda_": "1 + " + " + ".join(features)}, **kwargs,
         )
 
+    # Function guide: predict_percentile is responsible for perform percentile.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def predict_percentile(self, df, *, p=0.5, conditional_after=None):
         if not 0 < p < 1:
             raise ValueError("Survival percentile must be strictly between zero and one.")
         unit_hazard = self.predict_cumulative_hazard(df, times=[1.0]).iloc[0]
         return -np.log(p) / unit_hazard
 
+    # Function guide: predict_expectation is responsible for perform expectation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def predict_expectation(self, df):
         return 1.0 / self.predict_cumulative_hazard(df, times=[1.0]).iloc[0]
 
@@ -572,6 +628,9 @@ _AFT_CLASSES = {
     "Exponential": ExponentialAFTFitter,
 }
 
+# Function guide: test_distributions is responsible for test distributions.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def test_distributions(df: pd.DataFrame) -> dict:
     """
     Fit 4 parametric distributions to observed survival times (with censoring).
@@ -603,6 +662,9 @@ def test_distributions(df: pd.DataFrame) -> dict:
 
 # ── 5a. Cox Proportional Hazards (lifelines, L2-regularised) ─────────────────
 
+# Function guide: tune_cox_penalizer is responsible for select the Cox penalizer by cross-validation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def tune_cox_penalizer(df_train: pd.DataFrame, n_folds: int = 5,
                         feat_df: pd.DataFrame = None,
                         raw_feat_df: pd.DataFrame = None,
@@ -652,6 +714,9 @@ def tune_cox_penalizer(df_train: pd.DataFrame, n_folds: int = 5,
     return best_pen
 
 
+# Function guide: build_cox is responsible for fit the Cox proportional hazards model.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def build_cox(df_train: pd.DataFrame, penalizer: Optional[float] = None,
               feat_df: pd.DataFrame = None,
               raw_feat_df: pd.DataFrame = None) -> CoxPHFitter:
@@ -675,6 +740,9 @@ def build_cox(df_train: pd.DataFrame, penalizer: Optional[float] = None,
 
 # ── 5b. Parametric AFT (best distribution by AIC) ────────────────────────────
 
+# Function guide: build_aft is responsible for fit the parametric accelerated failure-time model.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def build_aft(df_train: pd.DataFrame, aft_class=None,
               penalizer: float = 0.01,
               feat_df: pd.DataFrame = None) -> object:
@@ -693,6 +761,9 @@ def build_aft(df_train: pd.DataFrame, aft_class=None,
 
 # ── 5c. Random Survival Forest (sksurv + Optuna) ─────────────────────────────
 
+# Function guide: build_rsf is responsible for fit the random survival forest model.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def build_rsf(df_train: pd.DataFrame, n_trials: int = 40,
               feat_df: pd.DataFrame = None) -> tuple:
     """
@@ -700,6 +771,10 @@ def build_rsf(df_train: pd.DataFrame, n_trials: int = 40,
 
     Returns (fitted_rsf, best_params, best_cv_cindex)
     """
+    import optuna
+    from sksurv.ensemble import RandomSurvivalForest
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
     if feat_df is None:
         feat_df = preprocess(df_train)
     X = feat_df.values.astype(float)
@@ -708,6 +783,9 @@ def build_rsf(df_train: pd.DataFrame, n_trials: int = 40,
                          name_event=EVENT_COL, name_time=TIME_COL)
     feat_cols = feat_df.columns.tolist()
 
+    # Function guide: objective is responsible for perform the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def objective(trial: optuna.Trial) -> float:
         params = dict(
             n_estimators  = trial.suggest_int("n_estimators", 100, 500, step=50),
@@ -741,8 +819,14 @@ def build_rsf(df_train: pd.DataFrame, n_trials: int = 40,
 # ── 5d. DeepSurv (pycox CoxPH + PyTorch MLP + Optuna) ────────────────────────
 
 if _DEEPSURV_AVAILABLE:
+    # Class guide: _MLP is responsible for perform the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     class _MLP(nn.Module):
         """Simple MLP for DeepSurv: linear → BN → ReLU → dropout, repeated."""
+        # Function guide: __init__ is responsible for initialize object state.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def __init__(self, in_features: int, num_nodes: list[int], dropout: float):
             super().__init__()
             layers: list[nn.Module] = []
@@ -754,13 +838,22 @@ if _DEEPSURV_AVAILABLE:
             layers.append(nn.Linear(prev, 1))
             self.net = nn.Sequential(*layers)
 
+        # Function guide: forward is responsible for perform the requested operation.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def forward(self, x):
             return self.net(x)
 
+    # Function guide: _make_mlp is responsible for create mlp.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def _make_mlp(in_features: int, num_nodes: list[int], dropout: float) -> "_MLP":
         return _MLP(in_features, num_nodes, dropout)
 
 
+# Class guide: DeepSurvWrapper is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 class DeepSurvWrapper:
     """
     Serialisable wrapper around pycox CoxPH.
@@ -770,6 +863,9 @@ class DeepSurvWrapper:
     a live torch/pycox session at load time.
     """
 
+    # Function guide: __init__ is responsible for initialize object state.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def __init__(self):
         self.scaler            = None
         self._feat_cols: list  = []
@@ -781,6 +877,9 @@ class DeepSurvWrapper:
 
     # ── Training ─────────────────────────────────────────────────────────────
 
+    # Function guide: fit is responsible for fit the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def fit(self, df_train: pd.DataFrame, params: dict,
             epochs: int = 150, feat_df: pd.DataFrame = None) -> "DeepSurvWrapper":
         if not _DEEPSURV_AVAILABLE:
@@ -837,6 +936,9 @@ class DeepSurvWrapper:
 
     # ── Reconstruction (after deserialisation) ───────────────────────────────
 
+    # Function guide: _model is responsible for perform the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def _model(self) -> "_PycoxCoxPH":
         net = _make_mlp(*self._net_params)
         net.load_state_dict(self._net_state)
@@ -848,18 +950,27 @@ class DeepSurvWrapper:
 
     # ── Prediction ───────────────────────────────────────────────────────────
 
+    # Function guide: predict_risk is responsible for perform risk.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def predict_risk(self, feat_df: pd.DataFrame) -> np.ndarray:
         """Log partial hazard (higher = more risk). feat_df: pre-processed feature matrix."""
         Xs = self.scaler.transform(feat_df[self._feat_cols].values).astype("float32")
         with torch.no_grad():
             return self._model().predict(Xs).flatten()
 
+    # Function guide: predict_surv_df is responsible for perform surv df.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def predict_surv_df(self, feat_df: pd.DataFrame) -> pd.DataFrame:
         """Survival probability DataFrame (index=time, columns=patients)."""
         Xs = self.scaler.transform(feat_df[self._feat_cols].values).astype("float32")
         return self._model().predict_surv_df(Xs)
 
 
+# Function guide: tune_deepsurv is responsible for tune deepsurv.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def tune_deepsurv(df_train: pd.DataFrame, n_trials: int = 15,
                   val_frac: float = 0.20,
                   feat_df: pd.DataFrame = None) -> tuple:
@@ -868,6 +979,9 @@ def tune_deepsurv(df_train: pd.DataFrame, n_trials: int = 15,
 
     Returns (best_params, best_cindex)
     """
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
     if not _DEEPSURV_AVAILABLE:
         raise ImportError("DeepSurv requires torch + pycox.")
     if feat_df is None:
@@ -882,6 +996,9 @@ def tune_deepsurv(df_train: pd.DataFrame, n_trials: int = 15,
     e_va = df_va[EVENT_COL].astype(bool).values
     t_va = df_va[TIME_COL].values
 
+    # Function guide: objective is responsible for perform the requested operation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def objective(trial: optuna.Trial) -> float:
         params = dict(
             n_layers   = trial.suggest_int("n_layers", 1, 3),
@@ -908,6 +1025,9 @@ def tune_deepsurv(df_train: pd.DataFrame, n_trials: int = 15,
     return study.best_params, study.best_value
 
 
+# Function guide: build_deepsurv is responsible for fit the DeepSurv model.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def build_deepsurv(df_train: pd.DataFrame, params: dict,
                    epochs: int = 200,
                    feat_df: pd.DataFrame = None) -> DeepSurvWrapper:
@@ -919,6 +1039,9 @@ def build_deepsurv(df_train: pd.DataFrame, params: dict,
 _EVAL_TIMES = np.array([12.0, 24.0, 36.0, 48.0, 60.0])
 
 
+# Function guide: _surv_matrix_lifelines is responsible for perform matrix lifelines.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _surv_matrix_lifelines(model, feat_df: pd.DataFrame,
                             times: np.ndarray) -> np.ndarray:
     """(n_samples, n_times) survival probability matrix from a lifelines model."""
@@ -933,6 +1056,9 @@ def _surv_matrix_lifelines(model, feat_df: pd.DataFrame,
     return mat.clip(0.0, 1.0)
 
 
+# Function guide: _surv_matrix_sksurv is responsible for perform matrix sksurv.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _surv_matrix_sksurv(surv_fns, times: np.ndarray) -> np.ndarray:
     """(n_samples, n_times) matrix from sksurv step-function list."""
     return np.row_stack([
@@ -940,6 +1066,9 @@ def _surv_matrix_sksurv(surv_fns, times: np.ndarray) -> np.ndarray:
     ]).clip(0.0, 1.0)
 
 
+# Function guide: _surv_matrix_deepsurv is responsible for perform matrix deepsurv.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _surv_matrix_deepsurv(wrapper: DeepSurvWrapper, feat_df: pd.DataFrame,
                            times: np.ndarray) -> np.ndarray:
     sf = wrapper.predict_surv_df(feat_df)   # (n_internal_times, n_samples)
@@ -952,6 +1081,9 @@ def _surv_matrix_deepsurv(wrapper: DeepSurvWrapper, feat_df: pd.DataFrame,
     return mat.clip(0.0, 1.0)
 
 
+# Function guide: _clip_times is responsible for perform times.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _clip_times(times: np.ndarray, y_train, y_test) -> np.ndarray:
     """Keep only times strictly inside the observed range of both splits."""
     times = np.unique(np.asarray(times, dtype=float))
@@ -960,6 +1092,9 @@ def _clip_times(times: np.ndarray, y_train, y_test) -> np.ndarray:
     return times[(times > t_lo) & (times < t_hi)]
 
 
+# Function guide: administrative_censor is responsible for perform censor.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def administrative_censor(y, times):
     """Censor beyond the evaluation horizon without changing earlier outcomes.
 
@@ -977,6 +1112,9 @@ def administrative_censor(y, times):
     return result
 
 
+# Function guide: evaluate is responsible for evaluate the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def evaluate(model, model_type: str,
              df_test: pd.DataFrame,
              y_train, y_test,
@@ -1076,6 +1214,9 @@ def evaluate(model, model_type: str,
     )
 
 
+# Function guide: evaluate_train is responsible for evaluate train.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def evaluate_train(model, model_type: str,
                    df_train: pd.DataFrame,
                    y_train,
@@ -1122,6 +1263,9 @@ def evaluate_train(model, model_type: str,
     return dict(c_index=float(c_idx), ibs=ibs, times=times_tr.tolist())
 
 
+# Function guide: risk_tertile_curves is responsible for perform tertile curves.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def risk_tertile_curves(risk: np.ndarray, df_test: pd.DataFrame) -> dict:
     """KM curves for low / medium / high risk tertiles."""
     q33, q67 = np.percentile(risk, [33.3, 66.7])
@@ -1137,6 +1281,9 @@ def risk_tertile_curves(risk: np.ndarray, df_test: pd.DataFrame) -> dict:
 
 # ── 7. Calibration at fixed time points ──────────────────────────────────────
 
+# Function guide: calibration_at is responsible for perform at.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def calibration_at(surv_mat: np.ndarray, df_test: pd.DataFrame,
                    times: list, n_bins: int = 5) -> dict:
     """
@@ -1164,7 +1311,12 @@ def calibration_at(surv_mat: np.ndarray, df_test: pd.DataFrame,
 
 # ── 8. Persistence ───────────────────────────────────────────────────────────
 
+# Function guide: env_versions is responsible for perform versions.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def env_versions() -> dict:
+    import optuna
+
     return dict(
         python   = platform.python_version(),
         numpy    = np.__version__,
@@ -1177,6 +1329,9 @@ def env_versions() -> dict:
     )
 
 
+# Function guide: save_model is responsible for save model.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def save_model(obj, path: str, meta: dict | None = None) -> None:
     bundle = dict(model=obj, meta=meta or {}, versions=env_versions(),
                   saved_at=time.strftime("%Y-%m-%dT%H:%M:%S"))
@@ -1184,6 +1339,9 @@ def save_model(obj, path: str, meta: dict | None = None) -> None:
     print(f"  saved → {path}")
 
 
+# Function guide: load_model is responsible for load model.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def load_model(path: str) -> dict:
     return joblib.load(path)
 

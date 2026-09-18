@@ -209,23 +209,23 @@ body { zoom: var(--app-scale); }
 .card-body { min-width: 0; padding: 8px !important; }
 .prediction-results { min-width: 0; display: grid; gap: 6px; }
 .prediction-results > .card, .prediction-results .infobar { margin: 0; }
-.summary-grid, .stage-grid, .note-grid {
+.overview-grid, .stage-grid, .note-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   margin: 0 0 7px;
 }
-.cohort-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.summary-tile, .stage-tile, .chip, .metric-chip {
+.cohort-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.overview-tile, .stage-tile, .chip, .metric-chip {
   min-width: 0;
   padding: 7px 8px;
   border: 1px solid var(--line);
   border-radius: 2px;
   background: var(--surface);
 }
-.summary-label, .stage-kicker, .chip-lbl, .mc-label { color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1.3; }
-.summary-value, .stage-value { margin: 3px 0 2px; color: var(--ink); font-size: 24px; font-weight: 700; line-height: 1.15; }
-.summary-detail, .stage-detail, .chip-detail { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+.overview-label, .stage-kicker, .chip-lbl, .mc-label { color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1.3; }
+.overview-value, .stage-value { margin: 3px 0 2px; color: var(--ink); font-size: 24px; font-weight: 700; line-height: 1.15; }
+.overview-detail, .stage-detail, .chip-detail { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
 .stage-tile { padding: 8px 9px; }
 .stage-value { font-size: 22px; }
 .infobar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 7px; }
@@ -335,7 +335,7 @@ table:has(tbody td:nth-child(6).num) th:nth-child(6) { text-align: right; }
 @media (max-width: 1000px) {
   .dashboard-shell { padding-right: 14px; padding-left: 14px; }
   .prediction-workspace { grid-template-columns: 230px minmax(0, 1fr); }
-  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 799px) {
@@ -356,12 +356,12 @@ table:has(tbody td:nth-child(6).num) th:nth-child(6) { text-align: right; }
   .input-grid { grid-template-columns: 1fr; }
   .input-grid > .shiny-input-container { grid-column: 1 !important; }
   .infobar { gap: 7px; }
-  .stage-grid, .cohort-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stage-grid, .cohort-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .chart-toolbar .shiny-input-container { flex-wrap: wrap; gap: 6px; }
   .chart-toolbar .form-select { width: 100%; }
   .tbl td, .tbl th, .mtbl td, .mtbl th, .prob-tbl td, .prob-tbl th { padding: 6px; overflow-wrap: anywhere; }
 }
 
 @media (max-width: 420px) {
-  .summary-grid, .stage-grid { grid-template-columns: 1fr; }
+  .overview-grid, .stage-grid { grid-template-columns: 1fr; }
 }

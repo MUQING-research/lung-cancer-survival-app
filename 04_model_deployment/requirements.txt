@@ -7,4 +7,3 @@ scikit-learn==1.7.2
 lifelines==0.30.3
 scikit-survival==0.25.0
 requests==2.32.5
-optuna==4.9.0

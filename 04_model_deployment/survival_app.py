@@ -6,14 +6,17 @@ Clinical data: TCGA-LUAD · N = 509 patients · NCI GDC API
 Cell Press visual style · Research & educational use only
 """
 
+# Module guide:
+# - Role: Define the deployed survival Shiny application.
+# - Workflow: Load a precomputed bundle, validate clinical inputs, estimate survival, and render diagnostics.
+# - Design note: The deployed process must not depend on raw training feature matrices.
 from __future__ import annotations
 
-import base64
 import hashlib
 import html
-import io
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -31,9 +34,8 @@ from shiny import App, reactive, render, ui
 from shiny.types import SafeException
 from sklearn.model_selection import train_test_split
 from sksurv.metrics import brier_score as _brier_score
-from sksurv.util import Surv
 
-from chart_views import CELL_COLORS
+from visualizations import CELL_COLORS
 import survival_core as sc
 from survival_core import (
     BRAND, EVENT_COL, SEED, TIME_COL,
@@ -42,12 +44,23 @@ from survival_core import (
 
 warnings.filterwarnings("ignore")
 
+_CACHE_ROOT = Path(os.environ.get(
+    "SURVIVAL_CACHE_DIR",
+    str(Path(__file__).parent / ".cache"),
+))
+
 if os.name == "nt":
-    _TMP_ROOT = Path(__file__).parent / ".cache" / "tmp"
+    _TMP_ROOT = _CACHE_ROOT / "tmp"
     _TMP_ROOT.mkdir(parents=True, exist_ok=True)
     tempfile.tempdir = str(_TMP_ROOT)
 
+    # Class guide: _SafeTemporaryDirectory is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     class _SafeTemporaryDirectory:
+        # Function guide: __init__ is responsible for perform the routine-specific application step.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def __init__(self, suffix=None, prefix=None, dir=None,
                      ignore_cleanup_errors=True):
             self.name = tempfile.mkdtemp(
@@ -56,12 +69,21 @@ if os.name == "nt":
                 dir=dir or str(_TMP_ROOT),
             )
 
+        # Function guide: __enter__ is responsible for perform the routine-specific application step.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def __enter__(self):
             return self.name
 
+        # Function guide: __exit__ is responsible for perform the routine-specific application step.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def __exit__(self, exc_type, exc, tb):
             return False
 
+        # Function guide: cleanup is responsible for perform the routine-specific application step.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def cleanup(self):
             return None
 
@@ -69,179 +91,93 @@ if os.name == "nt":
 
 sc.apply_cell_matplotlib_style()
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+for _source_dir in (
+    _REPO_ROOT / "01_data_cleaning",
+    _REPO_ROOT / "02_data_preprocessing",
+):
+    if _source_dir.is_dir():
+        sys.path.insert(0, str(_source_dir))
+
+from clean_clinical_data import (  # noqa: E402
+    clean_tcga_luad_records,
+    download_tcga_luad_records,
+)
+from survival_preprocessing import (  # noqa: E402
+    FEATURE_COLUMNS,
+    FEATURE_DISPLAY,
+    build_survival_target,
+    transform_feature_matrix,
+)
+
 _COX_CLR = CELL_COLORS[0]
 _AFT_CLR = CELL_COLORS[1]
 _MUTED   = BRAND["brown"]
-_INK_SV  = "#111111"     # reference rules / misc ink
 _AXIS_SV = "#334155"     # axis spines
 _TICK_SV = "#475569"     # tick marks / tick labels
 _LABEL_SV = "#1E293B"    # axis labels
 _GRID_SV = "#E2E8F0"     # neutral reference grid colour
 _PANEL_SV = BRAND["navy"]  # navy panel titles
-_REF_GRAY = "#999999"    # light reference rules inside figures
 
-# ── 1. GDC download & preprocessing ──────────────────────────────────────────
+# ── 1. Runtime paths and data schema ─────────────────────────────────────────
 
-_GDC_URL    = "https://api.gdc.cancer.gov/cases"
-# On HF Spaces: /tmp is writable. Locally: fall back to a .cache/ sibling dir.
-_HF_CACHE   = Path("/tmp/tcga_luad_gdc.json")
-_LOCAL_CACHE = Path(__file__).parent / ".cache" / "tcga_luad_gdc.json"
-_GDC_CACHE  = _HF_CACHE if _HF_CACHE.parent.exists() else _LOCAL_CACHE
-_DAYS_PER_M = 365.25 / 12.0
+# On shinyapps.io: /tmp is writable. Locally: fall back to a .cache sibling.
+_CACHE_DIR = Path(os.environ.get(
+    "SURVIVAL_TRAINING_CACHE_DIR",
+    str(Path(__file__).parent / ".cache"),
+))
+_GDC_CACHE = _CACHE_DIR / "tcga_luad_gdc.json"
 
-_GDC_FIELDS = ",".join([
-    "case_id", "demographic.vital_status", "demographic.days_to_death",
-    "diagnoses.days_to_last_follow_up", "diagnoses.days_to_death",
-    "diagnoses.age_at_diagnosis", "diagnoses.ajcc_pathologic_stage",
-    "diagnoses.ajcc_pathologic_t", "diagnoses.ajcc_pathologic_n",
-    "diagnoses.ajcc_pathologic_m",
-])
-
-_STAGE_MAP = {
-    "Stage I": 1, "Stage IA": 1, "Stage IA1": 1, "Stage IA2": 1,
-    "Stage IA3": 1, "Stage IB": 1,
-    "Stage II": 2, "Stage IIA": 2, "Stage IIB": 2,
-    "Stage III": 3, "Stage IIIA": 3, "Stage IIIB": 3, "Stage IIIC": 3,
-    "Stage IV": 4, "Stage IVA": 4, "Stage IVB": 4,
-}
-_T_MAP = {
-    "T0": 0, "T1": 1, "T1a": 1, "T1b": 1, "T1c": 1, "T1mi": 1,
-    "T2": 2, "T2a": 2, "T2b": 2, "T3": 3, "T4": 4,
-}
-_N_MAP = {"N0": 0, "N1": 1, "N2": 2, "N3": 3}
-
-FEAT_COLS = ["age", "stage", "t_stage", "n_stage", "m_stage"]
-FEAT_DISPLAY = {
-    "age":     "Age (years)",
-    "stage":   "AJCC Pathologic Stage (I–IV)",
-    "t_stage": "Pathologic T Category (T1–T4)",
-    "n_stage": "Pathologic N Category (N0–N3)",
-    "m_stage": "Pathologic M Category (M0/M1)",
-}
+FEAT_COLS = FEATURE_COLUMNS
+FEAT_DISPLAY = FEATURE_DISPLAY
 
 
-def _first_diag(diags: list, key: str):
-    for d in (diags or []):
-        v = d.get(key)
-        if v is not None:
-            return v
-    return None
-
-
-def _numeric(value):
-    """Convert source numeric fields without treating missing codes as numbers."""
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if np.isfinite(number) and number >= 0 else None
-
-
+# Function guide: _download_gdc is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _download_gdc() -> list:
-    if _GDC_CACHE.exists():
-        print(f"  GDC cache: {_GDC_CACHE}", flush=True)
-        return json.loads(_GDC_CACHE.read_text())
-    print("  Downloading TCGA-LUAD from NCI GDC ...", flush=True)
-    filt = json.dumps({
-        "op": "in",
-        "content": {"field": "project.project_id", "value": ["TCGA-LUAD"]},
-    })
-    hits, from_idx = [], 0
-    while True:
-        r = requests.get(_GDC_URL, params={
-            "filters": filt, "fields": _GDC_FIELDS,
-            "size": "500", "from": str(from_idx), "format": "JSON",
-        }, timeout=120, headers={"Accept": "application/json"})
-        r.raise_for_status()
-        page = r.json()["data"]
-        hits.extend(page["hits"])
-        from_idx += len(page["hits"])
-        if from_idx >= page["pagination"]["total"]:
-            break
-    _GDC_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    _GDC_CACHE.write_text(json.dumps(hits))
-    print(f"  Downloaded {len(hits)} patients", flush=True)
-    return hits
+    return download_tcga_luad_records(_GDC_CACHE)
 
 
-def _preprocess(hits: list) -> pd.DataFrame:
-    """Clean source values only, before any distribution-dependent processing."""
-    rows = []
-    seen = set()
-    excluded = {"duplicate_case": 0, "unknown_vital_status": 0, "invalid_survival_time": 0}
-    for h in hits:
-        case_id = h.get("case_id") or h.get("id")
-        if case_id in seen:
-            excluded["duplicate_case"] += 1
-            continue
-        if case_id is not None:
-            seen.add(case_id)
-        dem   = h.get("demographic") or {}
-        diags = h.get("diagnoses") or []
-        vital = str(dem.get("vital_status") or "").strip().upper()
-        if vital not in {"ALIVE", "DEAD"}:
-            excluded["unknown_vital_status"] += 1
-            continue
-        event = int(vital == "DEAD")
-        if event:
-            t_days = _numeric(dem.get("days_to_death"))
-            if t_days is None:
-                t_days = _numeric(_first_diag(diags, "days_to_death"))
-        else:
-            follow_up = [_numeric(d.get("days_to_last_follow_up")) for d in diags]
-            t_days = max((t for t in follow_up if t is not None), default=None)
-        if t_days is None or t_days <= 0:
-            excluded["invalid_survival_time"] += 1
-            continue
-        # Select one staging record for baseline predictors instead of combining
-        # values from different primary and later diagnosis records.
-        stage_keys = ("ajcc_pathologic_stage", "ajcc_pathologic_t", "ajcc_pathologic_n", "ajcc_pathologic_m")
-        baseline = max(diags, key=lambda d: sum(d.get(k) is not None for k in stage_keys), default={})
-        age_d = _numeric(baseline.get("age_at_diagnosis"))
-        age = age_d / 365.25 if age_d is not None else None
-        if age is not None and not 18 <= age <= 100:
-            age = None
-        m_raw = str(baseline.get("ajcc_pathologic_m") or "").strip().upper()
-        rows.append({
-            "case_id": case_id,
-            TIME_COL:  t_days / _DAYS_PER_M,
-            EVENT_COL: event,
-            "age":     age,
-            "stage":   _STAGE_MAP.get(str(baseline.get("ajcc_pathologic_stage") or "").strip()),
-            "t_stage": _T_MAP.get(str(baseline.get("ajcc_pathologic_t") or "").strip()),
-            "n_stage": _N_MAP.get(str(baseline.get("ajcc_pathologic_n") or "").strip()),
-            "m_stage": (1.0 if m_raw.startswith("M1") else
-                        0.0 if m_raw.startswith("M0") else None),
-        })
-    df = pd.DataFrame(rows)
-    df.attrs["cleaning_audit"] = {"source_rows": len(hits), "retained_rows": len(df), "excluded": excluded}
-    return df.reset_index(drop=True)
+# Function guide: _clean_clinical_records is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
+def _clean_clinical_records(hits: list) -> pd.DataFrame:
+    """Delegate base cleaning to stage 01 without data-dependent fitting."""
+    return clean_tcga_luad_records(hits)
 
 
-def _make_y(df: pd.DataFrame):
-    return Surv.from_arrays(
-        event=df[EVENT_COL].astype(bool).values,
-        time=df[TIME_COL].values,
-        name_event=EVENT_COL, name_time=TIME_COL,
-    )
+# Function guide: _build_survival_target is responsible for prepare or evaluate survival model information.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
+def _build_survival_target(df: pd.DataFrame):
+    return build_survival_target(df)
 
 
-def _feat_matrix(df: pd.DataFrame,
-                 imputer: sc.ClinicalPreprocessor = None,
-                 fit: bool = False) -> tuple[pd.DataFrame, sc.ClinicalPreprocessor]:
-    X = df[FEAT_COLS].copy().astype(float)
-    if fit:
-        imputer = sc.ClinicalPreprocessor().fit(X, df[[TIME_COL, EVENT_COL]])
-    return imputer.transform(X), imputer
+# Function guide: _transform_feature_matrix is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
+def _transform_feature_matrix(
+    df: pd.DataFrame,
+    imputer: sc.ClinicalPreprocessor = None,
+    fit: bool = False,
+) -> tuple[pd.DataFrame, sc.ClinicalPreprocessor]:
+    return transform_feature_matrix(df, preprocessor=imputer, fit=fit)
 
 
 _BUNDLE_VERSION = 3
 
 
+# Function guide: _stage_counts is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _stage_counts(df: pd.DataFrame) -> dict[str, int]:
     return {str(i): int((df["stage"] == i).sum()) for i in range(1, 5)}
 
 
+# Function guide: _null_brier_curve is responsible for prepare or evaluate survival model information.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _null_brier_curve(df_train: pd.DataFrame, y_train, y_test,
                       n_test: int, times: list | np.ndarray) -> dict:
     times_arr = np.array(times, dtype=float)
@@ -257,6 +193,9 @@ def _null_brier_curve(df_train: pd.DataFrame, y_train, y_test,
         return {"times": [], "values": []}
 
 
+# Function guide: _sanitized_bundle is responsible for load, validate, or save deployment bundle state.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _sanitized_bundle(raw: dict) -> tuple[dict, bool]:
     df_train = raw.get("df_train")
     df_all = raw.get("df_all")
@@ -309,6 +248,9 @@ def _sanitized_bundle(raw: dict) -> tuple[dict, bool]:
     return clean, changed
 
 
+# Function guide: _save_bundle is responsible for load, validate, or save deployment bundle state.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _save_bundle(bundle: dict, path: Path) -> None:
     import pickle
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -316,12 +258,15 @@ def _save_bundle(bundle: dict, path: Path) -> None:
         pickle.dump(bundle, _f)
 
 
-# ── 2. Startup — load bundle if available, else download + train from scratch 
+# ── 2. Startup — load bundle if available, else download + train from scratch
 
-_BUNDLE_PATH = Path(__file__).parent / "tcga_luad_app_bundle.pkl"
+_BUNDLE_PATH = Path(__file__).parent / "tcga_luad_survival_model_bundle.pkl"
 EVAL_TIMES   = np.array([12., 24., 36., 48., 60.])
 
 
+# Function guide: _startup_from_bundle is responsible for load, validate, or save deployment bundle state.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _startup_from_bundle(path: Path) -> dict:
     import pickle
     print(f"  Loading bundle: {path}", flush=True)
@@ -332,9 +277,12 @@ def _startup_from_bundle(path: Path) -> dict:
     return b
 
 
+# Function guide: _startup_from_scratch is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _startup_from_scratch() -> dict:
     hits      = _download_gdc()
-    df        = _preprocess(hits)
+    df        = _clean_clinical_records(hits)
     n_total   = len(df)
     ev_rate   = df[EVENT_COL].mean()
     med_fu    = df[TIME_COL].median()
@@ -346,11 +294,11 @@ def _startup_from_scratch() -> dict:
     df_train = df_train.reset_index(drop=True)
     df_test  = df_test.reset_index(drop=True)
 
-    ft_train, imp = _feat_matrix(df_train, fit=True)
-    ft_test,  _   = _feat_matrix(df_test,  imputer=imp)
+    ft_train, imp = _transform_feature_matrix(df_train, fit=True)
+    ft_test,  _   = _transform_feature_matrix(df_test,  imputer=imp)
 
-    y_train = _make_y(df_train)
-    y_test  = _make_y(df_test)
+    y_train = _build_survival_target(df_train)
+    y_test  = _build_survival_target(df_test)
 
     print("  Distribution fitting ...", flush=True)
     dist     = test_distributions(df_train)
@@ -408,13 +356,16 @@ def _startup_from_scratch() -> dict:
         "evaluation_times": eval_times.tolist(),
         "versions": {"lifelines": sc.lifelines.__version__, "scikit_survival": sc.sksurv.__version__, "scikit_learn": sc.sklearn.__version__},
     }
-    audit_dir = Path(__file__).parent / ".cache" / "audit"
+    audit_dir = Path(os.environ.get(
+        "SURVIVAL_AUDIT_DIR",
+        str(Path(__file__).parent / ".cache" / "audit"),
+    ))
     audit_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(audit_dir / "tcga_luad_cleaned.csv", index=False)
     ft_train.to_csv(audit_dir / "X_train_design.csv", index=False)
     ft_test.to_csv(audit_dir / "X_test_design.csv", index=False)
     (audit_dir / "data_dictionary.json").write_text(json.dumps(decisions, indent=2), encoding="utf-8")
-    (Path(__file__).parent / "eda_decisions.json").write_text(
+    (Path(__file__).parent / "preprocessing_decisions.json").write_text(
         json.dumps({"variables": decisions, "provenance": provenance, "diagnostics": diagnostics}, indent=2, allow_nan=False), encoding="utf-8",
     )
     bundle = dict(
@@ -442,7 +393,7 @@ print("=" * 56, flush=True)
 if _BUNDLE_PATH.exists() and os.environ.get("SURVIVAL_REBUILD_BUNDLE") != "1":
     _raw_bundle = _startup_from_bundle(_BUNDLE_PATH)
     if _raw_bundle.get("bundle_version") != _BUNDLE_VERSION:
-        raise RuntimeError("Outdated survival bundle. Run bundle_survival.py before starting the app.")
+        raise RuntimeError("Outdated survival bundle. Run 03_model_training_and_evaluation/train_and_export_model_bundle.py before starting the app.")
     _B, _changed = _sanitized_bundle(_raw_bundle)
     if _changed:
         _save_bundle(_B, _BUNDLE_PATH)
@@ -453,8 +404,6 @@ else:
     print(f"  Bundle saved: {_BUNDLE_PATH}", flush=True)
 
 # ── Unpack bundle ─────────────────────────────────────────────────────────────
-_Y_TR     = _B["y_train"]
-_Y_TE     = _B["y_test"]
 # The fitted transformer stores training statistics, spline knots and categories.
 _IMP = _B["preprocessor"]
 
@@ -477,7 +426,6 @@ TR_AFT   = _B.get("tr_aft", {})
 
 _best_name = ("Cox PH" if RES_COX["c_index"] >= RES_AFT["c_index"]
               else f"{DIST['best']} AFT")
-_best_risk = RES_COX["risk"] if _best_name == "Cox PH" else RES_AFT["risk"]
 print("  Ready.", flush=True)
 
 
@@ -523,10 +471,16 @@ _COUNTRY_NAMES = {
 }
 
 
+# Function guide: _country_name is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _country_name(code: str) -> str:
     return _COUNTRY_NAMES.get((code or "").upper(), code or "")
 
 
+# Function guide: _lookup_ip_location is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _lookup_ip_location(ip: str):
     if not ip or ip in ("127.0.0.1", "::1"):
         return None, None, None, None
@@ -558,6 +512,9 @@ def _lookup_ip_location(ip: str):
         return None, None, None, None
 
 
+# Function guide: _sb_headers_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _sb_headers_sv():
     return {
         "apikey":        _SUPABASE_KEY,
@@ -573,6 +530,9 @@ _HTTP_SESSION_SV = requests.Session()
 _HTTP_SESSION_SV.headers.update({"User-Agent": _APP_NAME_SV})
 
 
+# Function guide: _map_coordinate_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _map_coordinate_sv(value, lower, upper):
     """Return a finite coordinate inside the requested range."""
     try:
@@ -584,6 +544,9 @@ def _map_coordinate_sv(value, lower, upper):
     return coordinate
 
 
+# Function guide: _normalise_visit_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _normalise_visit_sv(visit):
     if not isinstance(visit, dict):
         return None
@@ -599,11 +562,17 @@ def _normalise_visit_sv(visit):
     }
 
 
+# Function guide: _normalise_visits_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _normalise_visits_sv(visits):
     normalised = (_normalise_visit_sv(visit) for visit in (visits or []))
     return [visit for visit in normalised if visit is not None]
 
 
+# Function guide: _record_local_visit_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _record_local_visit_sv(country, city, lat, lon):
     visit = _normalise_visit_sv({
         "country": country,
@@ -618,11 +587,17 @@ def _record_local_visit_sv(country, city, lat, lon):
         del _LOCAL_VISITS_SV[:-_LOCAL_VISITS_LIMIT_SV]
 
 
+# Function guide: _local_visits_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _local_visits_sv():
     with _LOCAL_VISITS_LOCK_SV:
         return [dict(visit) for visit in _LOCAL_VISITS_SV]
 
 
+# Function guide: _log_visit_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _log_visit_sv(country, city, lat, lon):
     if not (_SUPABASE_URL and _SUPABASE_KEY):
         return
@@ -640,6 +615,9 @@ def _log_visit_sv(country, city, lat, lon):
         pass
 
 
+# Function guide: _fetch_visits_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _fetch_visits_sv():
     if not (_SUPABASE_URL and _SUPABASE_KEY):
         _ANALYTICS_STATE["error"] = "configuration"
@@ -682,6 +660,9 @@ _WORLD_GEO_SV = None
 _WORLD_PATCHES_SV = None
 
 
+# Function guide: _load_world_geo_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _load_world_geo_sv():
     global _WORLD_GEO_SV
     if _WORLD_GEO_SV is None and _WORLD_GEO_PATH_SV.exists():
@@ -690,6 +671,9 @@ def _load_world_geo_sv():
     return _WORLD_GEO_SV
 
 
+# Function guide: _world_patches_sv is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _world_patches_sv():
     """World-outline matplotlib Polygons, parsed once per process."""
     global _WORLD_PATCHES_SV
@@ -718,6 +702,9 @@ def _world_patches_sv():
     return patches
 
 
+# Function guide: _make_visit_map_sv is responsible for create a user-facing visualization or UI component.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _make_visit_map_sv(visits, user_lat=None, user_lon=None,
                        analytics_mode="remote"):
     from matplotlib.collections import PatchCollection
@@ -803,9 +790,11 @@ def _make_visit_map_sv(visits, user_lat=None, user_lon=None,
 
 _CURVE_T = np.linspace(0.1, 72, 300)
 _KEY_T   = np.array([6., 12., 18., 24., 36., 48., 60.])
-_REF_T   = np.array([12., 24., 36., 60.])
 
 
+# Function guide: _cell_ax is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _cell_ax(fig, ax, grid=False):
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
@@ -827,6 +816,9 @@ def _cell_ax(fig, ax, grid=False):
         ax.grid(False)
 
 
+# Function guide: _predict_curve is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _predict_curve(model, feat_df: pd.DataFrame) -> np.ndarray:
     """Survival probabilities at _CURVE_T for one patient."""
     try:
@@ -839,26 +831,18 @@ def _predict_curve(model, feat_df: pd.DataFrame) -> np.ndarray:
     return probs.clip(0.0, 1.0)
 
 
-def _median_crossing(times: np.ndarray, probs: np.ndarray):
-    below = np.where(probs <= 0.5)[0]
-    if len(below) == 0:
-        return None
-    idx = below[0]
-    if idx == 0:
-        return float(times[0])
-    x0, x1 = times[idx - 1], times[idx]
-    y0, y1 = probs[idx - 1], probs[idx]
-    if y0 == y1:
-        return float(x1)
-    return float(x0 + (0.5 - y0) * (x1 - x0) / (y1 - y0))
-
-
+# Function guide: _survival_at_times is responsible for prepare or evaluate survival model information.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _survival_at_times(model, times: np.ndarray) -> np.ndarray:
     vals = model.survival_function_at_times(times)
     arr = np.asarray(vals, dtype=float).reshape(-1)
     return np.clip(arr, 0.0, 1.0)
 
 
+# Function guide: _survival_function_frame is responsible for prepare or evaluate survival model information.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _survival_function_frame(model):
     sf = getattr(model, "survival_function_", None)
     if sf is None or sf.empty:
@@ -867,149 +851,7 @@ def _survival_function_frame(model):
     return vals.index.to_numpy(dtype=float), vals.to_numpy(dtype=float)
 
 
-# ── 4a. Static figures (pre-rendered once per process) ────────────────────────
-
-def _figure_tag(fig, alt: str):
-    """Render a matplotlib figure to an embedded PNG <img> tag."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
-    return ui.tags.img(
-        src=f"data:image/png;base64,{encoded}",
-        alt=alt,
-    )
-
-
-def _make_dist_fig():
-    """Marginal survival distribution: KM + parametric candidates."""
-    fig, ax = plt.subplots(figsize=(7.0, 3.5))
-    _cell_ax(fig, ax)
-
-    km_t, km_s = _survival_function_frame(KM_TRAIN)
-    t_max = min(240.0, float(np.nanmax(km_t)) if km_t is not None else 240.0)
-    t_grid = np.linspace(0.0, t_max, 260)
-
-    handles = []
-    labels = []
-    if km_t is not None:
-        km_line = ax.step(km_t, km_s, where="post", color=BRAND["ink"],
-                          lw=1.0, label="Kaplan-Meier")[0]
-        ci = getattr(KM_TRAIN, "confidence_interval_", None)
-        if ci is not None and not ci.empty and ci.shape[1] >= 2:
-            ci_t = ci.index.to_numpy(dtype=float)
-            lo = ci.iloc[:, 0].to_numpy(dtype=float)
-            hi = ci.iloc[:, 1].to_numpy(dtype=float)
-            ax.fill_between(ci_t, lo, hi, step="post", color=BRAND["ink"],
-                            alpha=0.08, linewidth=0, zorder=0)
-        handles.append(km_line)
-        labels.append("Kaplan-Meier")
-
-    colors = [BRAND["blue"], _AFT_CLR, BRAND["green"], BRAND["red"]]
-    for (name, fitter), clr in zip(DIST["fitters"].items(), colors):
-        is_best = (name == DIST["best"])
-        sf_vals = _survival_at_times(fitter, t_grid)
-        line = ax.plot(
-            t_grid, sf_vals, color=clr, lw=1.0,
-            ls="-" if is_best else "--",
-            alpha=1.0 if is_best else 0.68,
-            label=f"{name}{' (best)' if is_best else ''}",
-            zorder=3 if is_best else 2,
-        )[0]
-        handles.append(line)
-        labels.append(f"{name}{' (best)' if is_best else ''}")
-
-    ax.set_xlabel("Time (months)")
-    ax.set_ylabel("Survival Probability")
-    ax.set_xlim(0, t_max)
-    ax.set_ylim(0, 1.05)
-    ax.legend(handles, labels, loc="upper right", frameon=False,
-              fontsize=7.5, handlelength=2.0, borderaxespad=0.4)
-    fig.tight_layout(pad=0.7)
-    return fig
-
-
-def _make_perf_plot(is_narrow: bool):
-    if is_narrow:
-        fig = plt.figure(figsize=(4.5, 6.4))
-        gs = fig.add_gridspec(2, 1, hspace=0.70)
-        axs = [fig.add_subplot(gs[i, 0]) for i in range(2)]
-    else:
-        fig = plt.figure(figsize=(7.0, 3.5))
-        gs = fig.add_gridspec(1, 2, wspace=0.42)
-        axs = [fig.add_subplot(gs[0, i]) for i in range(2)]
-
-    # Keep both panels free of gridlines.
-    _cell_ax(fig, axs[0])
-    _cell_ax(fig, axs[1])
-
-    # ── A: C-index forest plot ────────────────────────────────────────────
-    ax = axs[0]
-    names  = ["Cox PH", f"{DIST['best']} AFT"]
-    ci_v   = [RES_COX["c_index"],  RES_AFT["c_index"]]
-    ci_lo  = [RES_COX["ci_lo"],    RES_AFT["ci_lo"]]
-    ci_hi  = [RES_COX["ci_hi"],    RES_AFT["ci_hi"]]
-    colors = [_COX_CLR, _AFT_CLR]
-
-    ax.axvline(0.5, color=_REF_GRAY, lw=0.8, ls="--", zorder=0)
-    for i, (n, c, lo, hi, clr) in enumerate(
-            zip(names, ci_v, ci_lo, ci_hi, colors)):
-        xerr = np.array([[c - lo], [hi - c]])
-        ax.errorbar(c, i, xerr=xerr, fmt="o", color=clr, ecolor=clr,
-                    elinewidth=0.8, capsize=3, markersize=4, zorder=5)
-
-    ax.set_yticks(range(len(names)))
-    ax.set_yticklabels(names, fontsize=7.5)
-    x_min = max(0.45, min(ci_lo) - 0.05)
-    x_max = min(0.92, max(ci_hi) + 0.08)
-    ax.set_xlim(x_min, x_max)
-    for i, (c, hi, clr) in enumerate(zip(ci_v, ci_hi, colors)):
-        x_pos = min(hi + 0.010, x_max - 0.012)
-        ha = "left" if x_pos < x_max - 0.02 else "right"
-        ax.text(x_pos, i, f"{c:.3f}", va="center", ha=ha, fontsize=7.6,
-                color=clr, fontweight="600")
-    ax.set_xlabel("C-index (95% CI)", labelpad=4)
-    ax.set_title("A. C-index", fontweight="bold", loc="left",
-                 fontsize=9.0, pad=6)
-    ax.tick_params(axis="y", pad=3)
-
-    # ── B: Time-dependent AUC ─────────────────────────────────────────────
-    ax = axs[1]
-    auc_min = 1.0
-    auc_max = 0.5
-    for res, clr, nm in [
-        (RES_COX, _COX_CLR, "Cox"),
-        (RES_AFT, _AFT_CLR, "AFT"),
-    ]:
-        if not any(np.isnan(res["auc_vals"])):
-            auc_vals = np.array(res["auc_vals"], dtype=float)
-            auc_min = min(auc_min, float(np.nanmin(auc_vals)))
-            auc_max = max(auc_max, float(np.nanmax(auc_vals)))
-            ax.plot(res["times"], auc_vals, color=clr, lw=1.1,
-                    marker="o", ms=4,
-                    label=f"{nm} mean={res['mean_auc']:.3f}")
-
-    ax.axhline(0.5, color=_REF_GRAY, lw=0.8, ls="--")
-    ax.set_ylim(max(0.45, auc_min - 0.08), min(1.0, auc_max + 0.10))
-    ax.set_xlabel("Time (months)", labelpad=5)
-    ax.set_ylabel("Dynamic AUC", labelpad=2)
-    ax.set_title("B. Time-dependent AUC", fontweight="bold",
-                 loc="left", fontsize=9.0, pad=6)
-    ax.legend(fontsize=7.5, frameon=False, loc="lower right",
-              handlelength=2.2, borderaxespad=0.2)
-    if is_narrow:
-        fig.subplots_adjust(
-            left=0.22, right=0.95, top=0.97, bottom=0.09, hspace=0.70,
-        )
-    else:
-        fig.subplots_adjust(
-            left=0.095, right=0.985, top=0.90, bottom=0.18, wspace=0.42,
-        )
-
-    return fig
-
-
-import chart_views as charts
+import visualizations as charts
 
 _CINDEX_SRC = charts.png(charts.cindex_figure(globals()))
 _AUC_SRC = charts.png(charts.auc_figure(globals()))
@@ -1052,15 +894,21 @@ _n_lbl      = {"0": "N0", "1": "N1",  "2": "N2",   "3": "N3"}
 _m_lbl      = {"0": "M0 — No distant metastasis", "1": "M1 — Distant metastasis"}
 
 
-def _summary_tile(label: str, value: str, detail: str, accent: str) -> ui.Tag:
+# Function guide: _overview_tile is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
+def _overview_tile(label: str, value: str, detail: str, accent: str) -> ui.Tag:
     return ui.tags.div(
-        ui.tags.div(label, class_="summary-label"),
-        ui.tags.div(value, class_="summary-value"),
-        ui.tags.div(detail, class_="summary-detail"),
-        class_=f"summary-tile {accent}",
+        ui.tags.div(label, class_="overview-label"),
+        ui.tags.div(value, class_="overview-value"),
+        ui.tags.div(detail, class_="overview-detail"),
+        class_=f"overview-tile {accent}",
     )
 
 
+# Function guide: _section_head is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _section_head(_kicker: str, title: str, copy: str) -> ui.Tag:
     return ui.tags.div(
         ui.tags.h4(title, class_="section-title"),
@@ -1069,6 +917,9 @@ def _section_head(_kicker: str, title: str, copy: str) -> ui.Tag:
     )
 
 
+# Function guide: _hero_metadata is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _hero_metadata() -> ui.Tag:
     return ui.tags.div(
         ui.tags.span(ui.tags.strong(f"{N_TOTAL}"), " patients", class_="hero-meta-item"),
@@ -1093,10 +944,13 @@ def _hero_metadata() -> ui.Tag:
             class_="hero-meta-note",
         ),
         class_="hero-meta",
-        **{"aria-label": "Dataset and split summary"},
+        **{"aria-label": "Dataset and split overview"},
     )
 
 
+# Function guide: _stage_tile is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _stage_tile(stage_code: str) -> ui.Tag:
     count = int(STAGE_COUNTS.get(stage_code, 0))
     share = (100.0 * count / N_TOTAL) if N_TOTAL else 0.0
@@ -1108,6 +962,9 @@ def _stage_tile(stage_code: str) -> ui.Tag:
     )
 
 
+# Function guide: _note_block is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _note_block(title: str, copy: str) -> ui.Tag:
     return ui.tags.div(
         ui.tags.div(title, class_="note-title"),
@@ -1115,6 +972,9 @@ def _note_block(title: str, copy: str) -> ui.Tag:
         class_="note-block",
     )
 
+# Function guide: _input_panel is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _input_panel():
     return ui.tags.aside(
         ui.tags.h4("Patient profile", class_="input-title"),
@@ -1140,11 +1000,15 @@ def _input_panel():
     )
 
 
+# Function guide: _view_notes is responsible for perform the routine-specific application step.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _view_notes(*notes):
     return ui.tags.details(
         ui.tags.summary("Reading guide"),
         ui.tags.div(*notes, class_="note-grid"),
         class_="detail-panel view-notes",
+        open=True,
     )
 
 
@@ -1227,30 +1091,30 @@ app_ui = ui.page_fluid(
         ui.nav_panel(
             "Cohort Overview",
             _section_head(
-                "Cohort summary",
+                "Cohort overview",
                 "Stage distribution and marginal survival",
                 "Review stage composition, compare candidate marginal survival distributions, and view aggregate visitor activity.",
             ),
             ui.tags.div(
-                _summary_tile(
+                _overview_tile(
                     "Cohort",
                     f"{N_TOTAL}",
                     f"{N_TRAIN} training / {N_TEST} test patients",
                     "accent-blue",
                 ),
-                _summary_tile(
+                _overview_tile(
                     "Observed events",
                     f"{EV_RATE:.0%}",
                     "overall survival event rate in the full cohort",
                     "accent-teal",
                 ),
-                _summary_tile(
+                _overview_tile(
                     "Follow-up",
                     f"{MED_FU:.0f} m",
                     "median observed follow-up time",
                     "accent-navy",
                 ),
-                class_="summary-grid cohort-summary",
+                class_="overview-grid cohort-overview",
             ),
             ui.tags.div(
                 _stage_tile("1"),
@@ -1380,6 +1244,9 @@ app_ui = ui.page_fluid(
 
 # ── 6. Server ────────────────────────────────────────────────────────────────
 
+# Function guide: server is responsible for register the reactive Shiny server logic.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def server(input, output, session):
 
     # ── Visit logging ─────────────────────────────────────────────────────────
@@ -1395,6 +1262,9 @@ def server(input, output, session):
     except Exception:
         _ip = ""
 
+    # Function guide: _do_log is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def _do_log(ip: str) -> None:
         country, city, lat, lon = _lookup_ip_location(ip)
         visit = _normalise_visit_sv({
@@ -1414,6 +1284,9 @@ def server(input, output, session):
     _refresh_n    = {"c": 0}
 
     @reactive.effect
+    # Function guide: _auto_refresh is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def _auto_refresh():
         _refresh_n["c"] += 1
         if _refresh_n["c"] <= 3:
@@ -1421,11 +1294,17 @@ def server(input, output, session):
             _refresh_tick.set(_refresh_n["c"])
 
     @reactive.calc
+    # Function guide: _visits is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def _visits():
         _refresh_tick.get()  # re-fetch when the tick advances
         return _fetch_visits_sv()
 
     @render.ui
+    # Function guide: visit_map is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def visit_map():
         fig = _make_visit_map_sv(
             _visits(), _user_loc["lat"], _user_loc["lon"],
@@ -1437,6 +1316,9 @@ def server(input, output, session):
         return ui.tags.img(src=charts.png(fig), alt="Aggregate visitor locations on a world map")
 
     @render.ui
+    # Function guide: visit_stats is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def visit_stats():
         from collections import Counter
         visits = _normalise_visits_sv(_visits())
@@ -1489,6 +1371,9 @@ def server(input, output, session):
     # ── Patient feature dataframe ─────────────────────────────────────────────
 
     @reactive.calc
+    # Function guide: patient_feat is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def patient_feat() -> pd.DataFrame:
         input.submit()
         with reactive.isolate():
@@ -1500,10 +1385,13 @@ def server(input, output, session):
             except ValueError as exc:
                 raise SafeException(str(exc)) from None
         df_pt = pd.DataFrame([row])
-        feat, _ = _feat_matrix(df_pt, imputer=_IMP)
+        feat, _ = _transform_feature_matrix(df_pt, imputer=_IMP)
         return feat
 
     @reactive.calc
+    # Function guide: curves is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def curves():
         feat   = patient_feat()
         s_cox  = _predict_curve(COX, feat)
@@ -1513,6 +1401,9 @@ def server(input, output, session):
     # ── Info bar ──────────────────────────────────────────────────────────────
 
     @render.ui
+    # Function guide: info_bar is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def info_bar():
         cox, aft = curves()
         chips = []
@@ -1532,12 +1423,18 @@ def server(input, output, session):
     # ── Survival curve plot ───────────────────────────────────────────────────
 
     @render.ui
+    # Function guide: survival_curve is responsible for prepare or evaluate survival model information.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def survival_curve():
         cox, aft = curves()
         return ui.tags.img(src=charts.png(charts.survival_figure(_CURVE_T, cox, aft)),
                            alt="Patient Cox PH and Log-Logistic AFT survival projections")
 
     @render.ui
+    # Function guide: survival_curve_mobile is responsible for prepare or evaluate survival model information.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def survival_curve_mobile():
         cox, aft = curves()
         return ui.tags.img(
@@ -1548,6 +1445,9 @@ def server(input, output, session):
     # ── Probability table ─────────────────────────────────────────────────────
 
     @render.ui
+    # Function guide: prob_table is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def prob_table():
         s_cox, s_aft = curves()
         rows = ""
@@ -1586,12 +1486,18 @@ def server(input, output, session):
     # ── Distribution fitting plot (pre-rendered at import) ────────────────────
 
     @render.ui
+    # Function guide: dist_plot is responsible for create a user-facing visualization or UI component.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def dist_plot():
         return ui.tags.img(src=_DIST_SRC, alt="Training marginal survival and candidate parametric fits")
 
     # ── Distribution AIC table ────────────────────────────────────────────────
 
     @render.ui
+    # Function guide: dist_table is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def dist_table():
         tbl = DIST["table"]
         rows = ""
@@ -1621,20 +1527,35 @@ def server(input, output, session):
     # ── Model performance plot (pre-rendered at import) ───────────────────────
 
     @render.ui
+    # Function guide: perf_plot_cindex is responsible for create a user-facing visualization or UI component.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def perf_plot_cindex():
         return ui.tags.img(src=_CINDEX_SRC, alt="Training and test C-index with test bootstrap intervals")
 
     @render.ui
+    # Function guide: perf_plot_auc is responsible for prepare or evaluate survival model information.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def perf_plot_auc():
         return ui.tags.img(src=_AUC_SRC, alt="Held-out test time-dependent AUC for Cox PH and AFT")
 
     # ── Performance metric chips ──────────────────────────────────────────────
 
     @render.ui
+    # Function guide: perf_chips is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def perf_chips():
+        # Function guide: _fmt is responsible for perform the routine-specific application step.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def _fmt(v, decimals=3):
             return f"{v:.{decimals}f}" if isinstance(v, float) and not np.isnan(v) else "—"
 
+        # Function guide: _chip is responsible for perform the routine-specific application step.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def _chip(label, train_v, test_v, clr, decimals=3):
             _tint = "#F0F2F5" if clr == _COX_CLR else "#EEF6F4"
             return (
@@ -1673,6 +1594,9 @@ def server(input, output, session):
     # ── Methods panel ─────────────────────────────────────────────────────────
 
     @render.ui
+    # Function guide: methods_panel is responsible for perform the routine-specific application step.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def methods_panel():
         feat_rows = "".join(
             f"<tr><td><code>{c}</code></td>"
@@ -1681,6 +1605,9 @@ def server(input, output, session):
             for i, c in enumerate(FEAT_COLS)
         )
 
+        # Function guide: _f is responsible for perform the routine-specific application step.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def _f(v, d=3):
             return f"{v:.{d}f}" if isinstance(v, float) and not np.isnan(v) else "—"
 

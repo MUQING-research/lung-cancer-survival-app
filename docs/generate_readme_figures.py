@@ -1,3 +1,7 @@
+# Module guide:
+# - Role: Generate survival documentation figures from saved model artifacts.
+# - Workflow: Load derived bundle data and write deterministic static assets for project documentation.
+# - Design note: Do not refit the deployed models while generating documentation.
 """Regenerate the README model-evaluation figures from the deployment bundle."""
 
 from pathlib import Path
@@ -50,16 +54,22 @@ mpl.rcParams.update({
     "axes.facecolor": "white",
 })
 
-ROOT = Path(__file__).resolve().parent
-BUNDLE_PATH = ROOT / "tcga_luad_app_bundle.pkl"
-ASSET_DIR = ROOT / "assets"
+ROOT = Path(__file__).resolve().parents[1]
+BUNDLE_PATH = ROOT / "04_model_deployment" / "tcga_luad_survival_model_bundle.pkl"
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
 
 
+# Function guide: _load_bundle is responsible for load bundle.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _load_bundle() -> dict:
     with BUNDLE_PATH.open("rb") as handle:
         return pickle.load(handle)
 
 
+# Function guide: _style_axis is responsible for style axis.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _style_axis(ax) -> None:
     for spine in ("top", "right", "bottom", "left"):
         ax.spines[spine].set_visible(True)
@@ -74,6 +84,9 @@ def _style_axis(ax) -> None:
     ax.grid(False)
 
 
+# Function guide: _save_figure is responsible for save figure.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _save_figure(fig, filename: str) -> None:
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
@@ -81,6 +94,9 @@ def _save_figure(fig, filename: str) -> None:
     plt.close(fig)
 
 
+# Function guide: _model_performance_figure is responsible for perform performance figure.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _model_performance_figure(bundle: dict) -> None:
     model_rows = [
         {
@@ -245,6 +261,9 @@ def _model_performance_figure(bundle: dict) -> None:
     _save_figure(fig, "model_performance.png")
 
 
+# Function guide: _marginal_survival_figure is responsible for perform survival figure.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def _marginal_survival_figure(bundle: dict) -> None:
     distribution = bundle["dist"]
     km_fitter = bundle["km_train"]
@@ -292,6 +311,9 @@ def _marginal_survival_figure(bundle: dict) -> None:
     _save_figure(fig, "marginal_survival_fit.png")
 
 
+# Function guide: main is responsible for run the module main workflow.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def main() -> None:
     bundle = _load_bundle()
     _model_performance_figure(bundle)

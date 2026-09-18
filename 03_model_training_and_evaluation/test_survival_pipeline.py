@@ -1,33 +1,58 @@
-"""Focused regression checks for the survival deployment contract."""
+# Module guide:
+# - Role: Train, evaluate, or test the survival modelling workflow.
+# - Workflow: Compare Cox, AFT, and related survival utilities on train and test partitions and validate visualizations.
+# - Design note: Keep regression tests focused on reproducible bundle contents and evaluation contracts.
+"""Focused regression checks for the survival training and deployment pipeline."""
 
 import copy
 import pickle
+import sys
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sksurv.metrics import concordance_index_censored
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "04_model_deployment"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "02_data_preprocessing"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "01_data_cleaning"))
 import survival_core as sc
 import survival_app as app
 
 
-class SurvivalContractTests(unittest.TestCase):
+# Class guide: SurvivalPipelineTests is responsible for perform the requested operation.
+# Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+# Keep this boundary focused on one workflow step so it remains easy to test and reuse.
+class SurvivalPipelineTests(unittest.TestCase):
+    # Function guide: test_source_cleaning_excludes_unknown_outcome_and_nonpositive_time is responsible for test source cleaning excludes unknown outcome and nonpositive time.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def test_source_cleaning_excludes_unknown_outcome_and_nonpositive_time(self):
         diagnosis = {"days_to_last_follow_up": 100, "age_at_diagnosis": 20000, "ajcc_pathologic_stage": "Stage IA"}
         known = {"case_id": "known", "demographic": {"vital_status": "Alive"}, "diagnoses": [diagnosis]}
         unknown = {"case_id": "unknown", "demographic": {}, "diagnoses": [diagnosis]}
         zero = {"case_id": "zero", "demographic": {"vital_status": "Dead", "days_to_death": 0}, "diagnoses": [diagnosis]}
-        cleaned = app._preprocess([known, known, unknown, zero])
+        cleaned = app._clean_clinical_records([known, known, unknown, zero])
         self.assertEqual(len(cleaned), 1)
-        self.assertEqual(cleaned.attrs["cleaning_audit"]["excluded"], {"duplicate_case": 1, "unknown_vital_status": 1, "invalid_survival_time": 1})
+        self.assertEqual(
+            cleaned.attrs["cleaning_audit"]["excluded_rows"],
+            {
+                "duplicate_case": 1,
+                "unknown_vital_status": 1,
+                "invalid_survival_time": 1,
+            },
+        )
 
+    # Function guide: test_training_split_and_statistics_match_bundle is responsible for test training split and statistics match bundle.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def test_training_split_and_statistics_match_bundle(self):
         if not app._GDC_CACHE.exists():
             self.skipTest("Local raw cache intentionally absent in deployment.")
-        source = app._preprocess(app._download_gdc())
+        source = app._clean_clinical_records(app._download_gdc())
         train, test = train_test_split(source, test_size=0.2, random_state=sc.SEED, stratify=source[sc.EVENT_COL])
         self.assertTrue(set(train.case_id).isdisjoint(test.case_id))
         self.assertEqual((len(train), len(test)), (app.N_TRAIN, app.N_TEST))
@@ -39,6 +64,9 @@ class SurvivalContractTests(unittest.TestCase):
         app._IMP.transform(changed_test)
         self.assertEqual(before, pickle.dumps(app._IMP))
 
+    # Function guide: test_cv_fits_preprocessing_on_folds_only is responsible for test cv fits preprocessing on folds only.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def test_cv_fits_preprocessing_on_folds_only(self):
         rng = np.random.default_rng(sc.SEED)
         n = 80
@@ -50,6 +78,9 @@ class SurvivalContractTests(unittest.TestCase):
         rows_seen = []
         original = sc.ClinicalPreprocessor.fit
 
+        # Function guide: observed_fit is responsible for perform fit.
+        # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+        # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
         def observed_fit(transformer, X, y):
             rows_seen.append(set(X.index))
             return original(transformer, X, y)
@@ -62,6 +93,9 @@ class SurvivalContractTests(unittest.TestCase):
         self.assertTrue(all(len(indices) == 64 for indices in rows_seen))
         self.assertEqual(set.union(*rows_seen), set(raw.index))
 
+    # Function guide: test_exponential_family_has_fixed_shape is responsible for test exponential family has fixed shape.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def test_exponential_family_has_fixed_shape(self):
         rng = np.random.default_rng(sc.SEED)
         frame = pd.DataFrame({"x": rng.normal(size=160)})
@@ -73,20 +107,26 @@ class SurvivalContractTests(unittest.TestCase):
         np.testing.assert_allclose(survival[1], survival[0] ** 2, rtol=1e-9)
         np.testing.assert_allclose(fitted.predict_median(frame[["x"]]), fitted.predict_expectation(frame[["x"]]) * np.log(2))
 
+    # Function guide: test_ipcw_late_events_do_not_invalidate_supported_horizons is responsible for test ipcw late events do not invalidate supported horizons.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def test_ipcw_late_events_do_not_invalidate_supported_horizons(self):
         train = pd.DataFrame({sc.TIME_COL: np.arange(1, 11, dtype=float), sc.EVENT_COL: [1, 0] * 5})
         test = pd.DataFrame({sc.TIME_COL: [1.5, 3.5, 4.5, 50., 80.], sc.EVENT_COL: [1, 1, 0, 1, 0]})
         raw = pd.DataFrame({"age": [45, 55, 65, 75, 80], "stage": [1, 2, 3, 4, 2], "t_stage": [1, 2, 3, 4, 2], "n_stage": [0, 1, 2, 3, 1], "m_stage": [0, 0, 0, 1, 0]})
         features = app._IMP.transform(raw)
-        result = sc.evaluate(app.COX, "cox", test, app._make_y(train), app._make_y(test),
+        result = sc.evaluate(app.COX, "cox", test, app._build_survival_target(train), app._build_survival_target(test),
                              times=np.array([2., 4., 6.]), feat_df_test=features, n_boot=150)
         self.assertEqual(result["metric_errors"], {})
         self.assertTrue(np.isfinite(result["ibs"]))
         expected = concordance_index_censored(test[sc.EVENT_COL].astype(bool), test[sc.TIME_COL], result["risk"])[0]
         self.assertAlmostEqual(result["c_index"], expected)
         with self.assertRaisesRegex(ValueError, "two supported"):
-            sc.evaluate(app.COX, "cox", test, app._make_y(train), app._make_y(test), times=np.array([60.]), feat_df_test=features)
+            sc.evaluate(app.COX, "cox", test, app._build_survival_target(train), app._build_survival_target(test), times=np.array([60.]), feat_df_test=features)
 
+    # Function guide: test_bundle_allowlist_and_roundtrip_predictions is responsible for test bundle allowlist and roundtrip predictions.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def test_bundle_allowlist_and_roundtrip_predictions(self):
         raw = pd.DataFrame([{ "age": 65, "stage": 2, "t_stage": 2, "n_stage": 0, "m_stage": 0}])
         features = app._IMP.transform(raw)
@@ -108,6 +148,9 @@ class SurvivalContractTests(unittest.TestCase):
             self.assertGreaterEqual(clean[f"res_{model}"]["bootstrap_successful"], 150)
             self.assertEqual(clean[f"tr_{model}"]["times"], clean[f"res_{model}"]["times"])
 
+    # Function guide: test_clinical_inputs_reject_invalid_values is responsible for test clinical inputs reject invalid values.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
     def test_clinical_inputs_reject_invalid_values(self):
         valid = {"age": 65, "stage": 2, "t_stage": 2, "n_stage": 0, "m_stage": 0}
         self.assertEqual(sc.validate_clinical_inputs(valid)["age"], 65)

@@ -1,0 +1,2 @@
+-r ../04_model_deployment/requirements.txt
+optuna==4.9.0

@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY survival_core.py survival_app.py app.py tcga_luad_app_bundle.pkl world.geojson theme.css ./
-COPY eda_decisions.json ./
-COPY chart_views.py ./
+COPY survival_core.py survival_app.py app.py tcga_luad_survival_model_bundle.pkl world.geojson compact_theme.css ./
+COPY preprocessing_decisions.json ./
+COPY visualizations.py clean_clinical_data.py survival_preprocessing.py ./
 
 EXPOSE 7860
 
