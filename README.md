@@ -43,14 +43,14 @@ TCGA-LUAD clinical survival data (n = 509)
              80/20 event-stratified split
                 random seed = 42
                          |
-      Age median and stage-mode imputation
-       Age spline, stage/N dummy encoding
+       Five training-only MICE imputations for missing predictors
+       Age spline, stage/N dummy encoding per imputation
                          |
           +--------------+--------------+
           |                             |
-   L2-regularized Cox PH          Parametric AFT
+  L2-regularized Cox PH          Parametric AFT
   5-fold CV penalizer grid       family selected by AIC
-  selected penalizer = 0.01      Log-Logistic selected
+  selected penalizer = 5.0       Log-Logistic selected
           |                             |
           +--------------+--------------+
                          |
@@ -72,7 +72,9 @@ The current `tcga_luad_survival_model_bundle.pkl` uses five clinical predictors:
 4. pathologic N category; and
 5. pathologic M category.
 
-Missing age is imputed with the training median; missing stage categories use training modes. Training-only Cox partial-likelihood LRTs select a 3-knot cubic spline for age and reference-level dummy coding for overall stage and N category. T category remains integer-coded and M remains binary. The fitted transformations and reference categories are saved in `preprocessing_decisions.json`. Users must preserve the coding and units expected by the application.
+Missing predictor values are handled with five posterior-sampling MICE imputations fitted on the training partition. Age is imputed as a continuous variable; stage, T, N, and M categories are imputed within their documented code ranges. The fitted transformer is applied unchanged to validation, held-out test, and deployment inputs; it is never refitted on the test set. A missingness indicator is used for audit purposes only and is not included as a prediction feature. Age functional form is screened in each completed training dataset with an adjusted three-knot RCS Cox model, following the article-style overall P and P nonlinear tests. The majority decision (linear or RCS) is then applied consistently across the imputed models. All categorical variables (overall stage, T, N, and M) use treatment-coded dummy variables with the first training level as reference. The fitted transformations and reference categories are saved in `preprocessing_decisions.json`. Users must preserve the coding and units expected by the application.
+
+The training audit exports only `feature_form_age.png` as a one-row by five-column small-multiple figure. Each column is one completed training imputation and shows the article-style adjusted RCS hazard-ratio curve with its 95% confidence band, the overall P value, and P nonlinear. The training-median age is the HR=1 reference. Categorical variables are dummy-coded and are not subjected to a linearity test.
 
 ## Outcome and prediction semantics
 
@@ -91,10 +93,10 @@ The following values describe the checked-in bundle and its fixed 80/20 split. T
 
 | Model | C-index train | C-index test | Test 95% bootstrap CI | IBS train | IBS test | Mean test AUC |
 |---|---:|---:|---:|---:|---:|---:|
-| Cox PH | 0.679 | 0.691 | 0.602-0.768 | 0.1863 | 0.1903 | 0.728 |
-| Log-Logistic AFT | 0.679 | 0.689 | 0.602-0.764 | 0.1871 | 0.1898 | 0.729 |
+| Cox PH | 0.665 | 0.697 | 0.615-0.772 | 0.2047 | 0.2167 | 0.732 |
+| Log-Logistic AFT | 0.677 | 0.680 | 0.593-0.755 | 0.1881 | 0.1948 | 0.712 |
 
-Test C-index confidence intervals use 150 bootstrap resamples. Integrated Brier Score and cumulative/dynamic AUC are evaluated at 12, 24, 36, 48, and 60 months after restricting evaluation times to the observed support of both splits.
+Test C-index confidence intervals use 150 bootstrap resamples. Test rows are transformed with the training-fitted MICE pipeline, and the number of test rows with missing predictors is reported in the bundle provenance. Integrated Brier Score and cumulative/dynamic AUC are evaluated at 12, 24, 36, 48, and 60 months after restricting evaluation times to the observed support of both splits.
 
 For test IPCW metrics, follow-up beyond the last supported evaluation horizon is administratively censored just after that horizon. This preserves earlier case/control status and prevents irrelevant late events from exceeding training censoring support. Five-fold cross-validation is used for Cox penalizer selection as internal validation; the fixed 20% holdout is reserved for final test-set evaluation. The model checks can be reproduced with `python -m unittest discover -s 03_model_training_and_evaluation -p "test_*.py" -v`; the source-cache check is skipped when raw data is intentionally absent.
 
@@ -239,7 +241,7 @@ The shinyapps.io deployment helper does not forward environment variables: that 
 - Only five routinely recorded clinical predictors are used; treatment, molecular, imaging, comorbidity, and performance-status information are not included.
 - Proportional-hazards assumptions and parametric extrapolation assumptions require further validation before any clinical use.
 - The single fixed split does not quantify the full variability of model development and selection.
-- Median/mode imputation does not capture uncertainty from missing clinical information, particularly the frequently missing M category.
+- M-stage missingness is substantial. Multiple imputation propagates part of the uncertainty, but MNAR sensitivity analyses and external validation are still required.
 - Predictions reflect the TCGA-LUAD cohort and should not be generalized to other lung-cancer histologies or care settings without validation.
 
 ## Data attribution

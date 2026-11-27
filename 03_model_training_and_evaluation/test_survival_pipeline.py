@@ -56,13 +56,84 @@ class SurvivalPipelineTests(unittest.TestCase):
         train, test = train_test_split(source, test_size=0.2, random_state=sc.SEED, stratify=source[sc.EVENT_COL])
         self.assertTrue(set(train.case_id).isdisjoint(test.case_id))
         self.assertEqual((len(train), len(test)), (app.N_TRAIN, app.N_TEST))
-        expected = sc.ClinicalImputer().fit(train[app.FEAT_COLS]).statistics_
-        np.testing.assert_allclose(app._IMP.statistics_, expected)
+        self.assertEqual(app._IMP.n_imputations, app.N_IMPUTATIONS)
+        self.assertEqual(len(app._IMP.preprocessors_), app.N_IMPUTATIONS)
         before = pickle.dumps(app._IMP)
         changed_test = test[app.FEAT_COLS].copy()
         changed_test["age"] = 99
-        app._IMP.transform(changed_test)
+        transformed = app._IMP.transform_multiple(changed_test)
+        self.assertEqual(len(transformed), app.N_IMPUTATIONS)
+        self.assertTrue(all(np.isfinite(frame.to_numpy()).all() for frame in transformed))
         self.assertEqual(before, pickle.dumps(app._IMP))
+
+    # Function guide: test_test_metrics_use_training_fitted_imputation is responsible for test metrics use training fitted imputation.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
+    def test_test_metrics_use_training_fitted_imputation(self):
+        self.assertEqual(app.N_TEST_EVAL, app.N_TEST)
+        self.assertEqual(
+            app._B["provenance"]["test_non_evaluable_missing"],
+            0,
+        )
+        self.assertGreater(app._B["provenance"]["test_rows_with_missing_predictors"], 0)
+        self.assertEqual(app._B["res_cox"]["surv_mat"].shape[0], app.N_TEST)
+        self.assertIn("apply the fitted transformer", app._B["provenance"]["cleaning"]["missing_predictor_rule"])
+
+    # Function guide: test_all_categorical_features_are_dummy_encoded is responsible for verify categorical design columns.
+    # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
+    # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
+    def test_all_categorical_features_are_dummy_encoded(self):
+        for preprocessor in app._IMP.preprocessors_:
+            self.assertEqual(
+                preprocessor.forms_["stage"], "dummy"
+            )
+            self.assertEqual(
+                preprocessor.forms_["t_stage"], "dummy"
+            )
+            self.assertEqual(
+                preprocessor.forms_["n_stage"], "dummy"
+            )
+            self.assertEqual(
+                preprocessor.forms_["m_stage"], "dummy"
+            )
+            dummy_columns = {column for column in preprocessor.output_columns_
+                             if column.startswith(("stage_", "t_stage_", "n_stage_", "m_stage_"))}
+            expected = {
+                f"{name}_{int(level)}"
+                for name, levels in preprocessor.categories_.items()
+                for level in levels[1:]
+            }
+            self.assertEqual(dummy_columns, expected)
+        age_forms = {preprocessor.forms_["age"] for preprocessor in app._IMP.preprocessors_}
+        self.assertEqual(age_forms, {app._IMP.forms_["age"]})
+        self.assertIn(app._IMP.forms_["age"], {"linear", "rcs"})
+        age_summary = next(
+            item for item in app._B["diagnostics"]["functional_form_checks"]
+            if item.get("method") == "Multiple-imputation article-style Cox RCS Wald tests"
+        )
+        self.assertEqual(age_summary["n_imputations"], app.N_IMPUTATIONS)
+        self.assertIn(age_summary["decision"], {"linear", "rcs"})
+        self.assertEqual(len(age_summary["p_total_values"]), app.N_IMPUTATIONS)
+        self.assertEqual(len(age_summary["p_nonlinear_values"]), app.N_IMPUTATIONS)
+        for check in app._IMP.form_checks_[1:]:
+            self.assertEqual(
+                check["method"],
+                "Article-style Cox RCS overall and nonlinear Wald tests",
+            )
+            self.assertIn("p_total", check)
+            self.assertIn("p_nonlinear", check)
+        self.assertEqual(
+            {item["variable"] for item in app._B["diagnostics"]["functional_form_checks"]},
+            {"age"},
+        )
+        self.assertEqual(
+            {item["variable"] for item in app._B["diagnostics"]["categorical_encoding_checks"]},
+            {"stage", "t_stage", "n_stage", "m_stage"},
+        )
+        self.assertEqual(
+            app._B["diagnostics"]["feature_form_figures"],
+            {"age": "feature_form_age.png"},
+        )
 
     # Function guide: test_cv_fits_preprocessing_on_folds_only is responsible for test cv fits preprocessing on folds only.
     # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
@@ -134,12 +205,12 @@ class SurvivalPipelineTests(unittest.TestCase):
         polluted = copy.deepcopy(app._B)
         polluted["df_train"] = raw
         polluted["feat_test"] = features
-        polluted["cox"]._model._training_data = features
+        polluted["cox"].models[0]._training_data = features
         clean, changed = app._sanitized_bundle(polluted)
         self.assertTrue(changed)
         self.assertNotIn("df_train", clean)
         self.assertNotIn("feat_test", clean)
-        self.assertNotIn("_training_data", vars(clean["cox"]._model))
+        self.assertNotIn("_training_data", vars(clean["cox"].models[0]))
         restored = pickle.loads(pickle.dumps(clean))
         np.testing.assert_allclose(restored["cox"].predict_survival_function(features, times=[12, 24, 60]), before)
         for model in ("cox", "aft"):
@@ -154,10 +225,27 @@ class SurvivalPipelineTests(unittest.TestCase):
     def test_clinical_inputs_reject_invalid_values(self):
         valid = {"age": 65, "stage": 2, "t_stage": 2, "n_stage": 0, "m_stage": 0}
         self.assertEqual(sc.validate_clinical_inputs(valid)["age"], 65)
-        for field, bad in [("age", None), ("age", ""), ("age", -1), ("age", 101),
-                           ("age", float("nan")), ("age", float("inf")), ("stage", 5), ("n_stage", 0.5)]:
+        for field, bad in [("age", -1), ("age", 101), ("age", float("inf")),
+                           ("stage", 5), ("n_stage", 0.5)]:
             with self.subTest(field=field, value=bad), self.assertRaises(ValueError):
                 sc.validate_clinical_inputs({**valid, field: bad})
+
+    # Function guide: test_t0_and_missing_m_stage_follow_the_input_contract
+    # verifies that T0 is accepted and missing inputs are transformed by MICE.
+    def test_t0_and_missing_m_stage_follow_the_input_contract(self):
+        values = sc.validate_clinical_inputs({
+            "age": 65, "stage": 2, "t_stage": 0, "n_stage": 0,
+            "m_stage": 0,
+        })
+        self.assertEqual(values["t_stage"], 0)
+        transformed = app._IMP.transform_multiple(pd.DataFrame([values]))
+        self.assertEqual(len(transformed), app.N_IMPUTATIONS)
+        self.assertTrue(all(np.isfinite(frame.to_numpy()).all() for frame in transformed))
+        for missing_value in (None, "", "unknown", float("nan")):
+            with self.subTest(value=missing_value):
+                missing_values = sc.validate_clinical_inputs({**values, "m_stage": missing_value})
+                missing_transformed = app._IMP.transform_multiple(pd.DataFrame([missing_values]))
+                self.assertTrue(all(np.isfinite(frame.to_numpy()).all() for frame in missing_transformed))
 
 
 if __name__ == "__main__":

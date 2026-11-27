@@ -96,14 +96,14 @@ def build_preprocessing_decisions(
             "functional_form": form,
             "encoding": (
                 "dummy, drop first" if form == "dummy"
-                else "continuous" if name == "age"
+                else "restricted cubic spline basis" if name == "age"
                 else "integer code"
             ),
             "reference_level": preprocessor.categories_.get(name, [None])[0],
             "training_levels": preprocessor.categories_.get(name),
             "cut_points": (
-                preprocessor.age_spline_.bsplines_[0].t.tolist()
-                if name == "age" and form == "spline" else None
+                preprocessor.age_rcs_.knots_.tolist()
+                if name == "age" and form == "rcs" else None
             ),
             "form_checks": [
                 result for result in preprocessor.form_checks_
@@ -117,7 +117,7 @@ def build_preprocessing_decisions(
 # Inputs: the component state and explicit routine arguments. Outputs and side effects follow the routine contract.
 # Keep this boundary focused on one workflow step so it remains easy to test and reuse.
 def check_feature_schema(data: pd.DataFrame) -> None:
-    """Reject missing or unexpected predictor columns before model fitting."""
+    """Validate predictor columns while allowing NaN for training imputation."""
     missing = [column for column in FEATURE_COLUMNS if column not in data.columns]
     if missing:
         raise ValueError(f"Missing clinical predictor columns: {missing}")

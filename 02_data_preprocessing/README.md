@@ -1,5 +1,5 @@
 # Survival preprocessing
 
-This stage builds the structured event-time target and fits training-only clinical preprocessing. Age uses median imputation; categorical clinical variables use training-set modes. Cox partial-likelihood checks select the functional form and encoding, with a cubic spline considered for age and dummy coding considered for ordered categories.
+This stage builds the structured event-time target and fits training-only clinical preprocessing. Five posterior-sampling MICE imputations are fitted on the training predictors; age remains continuous and categorical clinical codes are rounded and clipped to their documented domains. Each completed training dataset fits an adjusted three-knot RCS Cox model and reports the article-style overall P and P nonlinear tests. The majority decision (linear or RCS) is applied consistently across the imputed models. All categorical clinical codes use treatment-coded dummy variables.
 
-The fitted preprocessing object and decisions are applied unchanged to the test set. The implementation is `survival_preprocessing.py`; the survival-specific estimator classes remain in the deployment-compatible `survival_core.py` module.
+The fitted imputation and functional-form preprocessors are applied unchanged to validation, held-out test, and deployment rows; no preprocessing parameter is refitted on the test set. The implementation is `survival_preprocessing.py`; the survival-specific estimator classes remain in the deployment-compatible `survival_core.py` module.

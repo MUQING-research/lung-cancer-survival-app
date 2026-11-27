@@ -9,29 +9,23 @@
         "0": 0.0421455938697318,
         "1": 0.0684931506849315
       },
-      "missing_value_rule": "median",
-      "imputation_value": 66.61601642710473,
-      "transformation": "raw",
-      "functional_form": "spline",
-      "encoding": "continuous",
+      "missing_value_rule": "MICE posterior sampling across five imputations",
+      "imputation_value": 66.98973305954826,
+      "transformation": "restricted_cubic_spline",
+      "functional_form": "rcs",
+      "encoding": "restricted cubic spline basis",
       "reference_level": null,
       "training_levels": null,
       "unseen_category": "Map to training mode before encoding",
       "centring_constant": null,
       "cut_points": [
-        -37.01848049281314,
-        -11.84394250513347,
-        13.330595482546201,
-        38.50513347022587,
-        63.67967145790554,
-        88.85420944558521,
-        114.02874743326488,
-        139.20328542094455,
-        164.37782340862424
+        48.84435318275154,
+        66.56536618754278,
+        81.14524298425735
       ],
       "sparse_levels_train": {},
       "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
-      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+      "missing_indicator": "Used for missingness audit only; not included as a prediction feature."
     },
     "stage": {
       "type": "ordinal",
@@ -42,24 +36,24 @@
         "0": 0.019157088122605363,
         "1": 0.00684931506849315
       },
-      "missing_value_rule": "mode",
+      "missing_value_rule": "MICE posterior sampling across five imputations",
       "imputation_value": 1.0,
       "transformation": "raw",
       "functional_form": "dummy",
       "encoding": "dummy, drop first",
-      "reference_level": 1.0,
+      "reference_level": 1,
       "training_levels": [
-        1.0,
-        2.0,
-        3.0,
-        4.0
+        1,
+        2,
+        3,
+        4
       ],
       "unseen_category": "Map to training mode before encoding",
       "centring_constant": null,
       "cut_points": null,
       "sparse_levels_train": {},
       "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
-      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+      "missing_indicator": "Used for missingness audit only; not included as a prediction feature."
     },
     "t_stage": {
       "type": "ordinal",
@@ -70,19 +64,24 @@
         "0": 0.0038314176245210726,
         "1": 0.0136986301369863
       },
-      "missing_value_rule": "mode",
+      "missing_value_rule": "MICE posterior sampling across five imputations",
       "imputation_value": 2.0,
       "transformation": "raw",
-      "functional_form": "linear",
-      "encoding": "integer code",
-      "reference_level": null,
-      "training_levels": null,
+      "functional_form": "dummy",
+      "encoding": "dummy, drop first",
+      "reference_level": 1,
+      "training_levels": [
+        1,
+        2,
+        3,
+        4
+      ],
       "unseen_category": "Map to training mode before encoding",
       "centring_constant": null,
       "cut_points": null,
       "sparse_levels_train": {},
       "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
-      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+      "missing_indicator": "Used for missingness audit only; not included as a prediction feature."
     },
     "n_stage": {
       "type": "ordinal",
@@ -93,17 +92,17 @@
         "0": 0.034482758620689655,
         "1": 0.0273972602739726
       },
-      "missing_value_rule": "mode",
+      "missing_value_rule": "MICE posterior sampling across five imputations",
       "imputation_value": 0.0,
       "transformation": "raw",
       "functional_form": "dummy",
       "encoding": "dummy, drop first",
-      "reference_level": 0.0,
+      "reference_level": 0,
       "training_levels": [
-        0.0,
-        1.0,
-        2.0,
-        3.0
+        0,
+        1,
+        2,
+        3
       ],
       "unseen_category": "Map to training mode before encoding",
       "centring_constant": null,
@@ -112,7 +111,7 @@
         "3.0": 2
       },
       "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
-      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+      "missing_indicator": "Used for missingness audit only; not included as a prediction feature."
     },
     "m_stage": {
       "type": "binary",
@@ -123,19 +122,22 @@
         "0": 0.3371647509578544,
         "1": 0.2054794520547945
       },
-      "missing_value_rule": "mode",
+      "missing_value_rule": "MICE posterior sampling across five imputations",
       "imputation_value": 0.0,
       "transformation": "raw",
-      "functional_form": "linear",
-      "encoding": "integer code",
-      "reference_level": null,
-      "training_levels": null,
+      "functional_form": "dummy",
+      "encoding": "dummy, drop first",
+      "reference_level": 0,
+      "training_levels": [
+        0,
+        1
+      ],
       "unseen_category": "Map to training mode before encoding",
       "centring_constant": null,
       "cut_points": null,
       "sparse_levels_train": {},
       "sparse_merge_decision": "No merge: retain clinically distinct ordered stage categories.",
-      "missing_indicator": "Not included; missingness can reflect staging practice and should be reassessed in external validation."
+      "missing_indicator": "Used for missingness audit only; not included as a prediction feature."
     }
   },
   "provenance": {
@@ -143,19 +145,56 @@
     "split": "80/20 event-stratified",
     "n_train": 407,
     "n_test": 102,
+    "n_test_evaluable": 102,
+    "test_non_evaluable_missing": 0,
+    "test_rows_with_missing_predictors": 37,
     "train_events": 146,
     "test_events": 37,
     "cleaning": {
       "source_rows": 585,
       "retained_rows": 509,
-      "excluded": {
+      "excluded_rows": {
         "duplicate_case": 0,
         "unknown_vital_status": 63,
         "invalid_survival_time": 13
-      }
+      },
+      "outcome_definition": "Overall survival from diagnosis to death or last follow-up.",
+      "event_definition": "1=death; 0=alive at last follow-up and right-censored.",
+      "missing_counts": {
+        "case_id": 0,
+        "time_months": 0,
+        "event_death": 0,
+        "age": 28,
+        "stage": 8,
+        "t_stage": 3,
+        "n_stage": 14,
+        "m_stage": 147
+      },
+      "missing_rates": {
+        "case_id": 0.0,
+        "time_months": 0.0,
+        "event_death": 0.0,
+        "age": 0.0550098231827112,
+        "stage": 0.015717092337917484,
+        "t_stage": 0.005893909626719057,
+        "n_stage": 0.0275049115913556,
+        "m_stage": 0.2888015717092338
+      },
+      "missing_handling": "Retain missing predictor values for training-only imputation in stage 02.",
+      "duplicate_policy": "Keep the first record for each case identifier.",
+      "complete_case_sensitivity_n": 328,
+      "missing_predictor_rule": "Fit MICE within the training split; apply the fitted transformer to validation, held-out test, and deployment inputs without refitting.",
+      "outcome_exclusion_rule": "Exclude only duplicate cases, unknown vital status, or invalid/non-positive survival time."
+    },
+    "missing_data": {
+      "primary_method": "Multiple imputation by chained equations with posterior sampling",
+      "n_imputations": 5,
+      "fit_scope": "Imputer fitted on training partition only; applied unchanged to test and deployment inputs",
+      "missing_indicator": "Used for audit of missingness patterns; not included as a prediction feature.",
+      "sensitivity_analysis": "Complete-case analysis retained as a sensitivity comparison; MNAR delta sensitivity remains recommended."
     },
     "source_sha256": "0c86f8cd3b01f23adfedbbf0fdd16f6c2b161195ad0c34986aa61c413bbfeaf2",
-    "cox_cv": "Five event-stratified folds; imputation, functional screening, spline knots and dummy levels refitted in each training fold",
+    "cox_cv": "Five event-stratified folds; imputation, restricted-spline knots and dummy levels refitted in each training fold",
     "evaluation_times": [
       12.0,
       24.0,
@@ -171,7 +210,7 @@
   },
   "diagnostics": {
     "scope": "Training data only; survival-specific diagnostics, not logistic GAM diagnostics.",
-    "model_specification": "Cox partial-likelihood LRT screens functional forms at alpha=0.10; refitted separately within CV folds.",
+    "model_specification": "Cox PH uses a three-knot restricted cubic spline for age; linear-versus-RCS partial-likelihood LRTs are retained as training-only audits and refitted within CV folds.",
     "age_distribution": {
       "shapiro_p": 0.006304537911373909,
       "skewness": -0.2770859320667231,
@@ -189,77 +228,77 @@
       {
         "penalizer": 0.001,
         "fold_scores": [
-          0.6013771996939556,
-          0.6648096564531105,
-          0.6892488954344624,
-          0.6078280890253261,
-          0.6268718801996672
+          0.6702371843917369,
+          0.6555246053853296,
+          0.6354933726067746,
+          0.6193399846508059,
+          0.6114808652246256
         ],
         "failures": []
       },
       {
         "penalizer": 0.01,
         "fold_scores": [
-          0.6006120887528692,
-          0.6620241411327762,
-          0.6980854197349042,
-          0.6216423637759018,
-          0.6368552412645591
+          0.6595256312165264,
+          0.6425255338904364,
+          0.6413843888070693,
+          0.6162701458173446,
+          0.6164725457570716
         ],
         "failures": []
       },
       {
         "penalizer": 0.05,
         "fold_scores": [
-          0.5983167559296098,
-          0.6555246053853296,
-          0.7032400589101621,
-          0.6201074443591711,
-          0.6410149750415973
+          0.6472838561591431,
+          0.637883008356546,
+          0.6509572901325479,
+          0.6178050652340752,
+          0.6381031613976705
         ],
         "failures": []
       },
       {
         "penalizer": 0.1,
         "fold_scores": [
-          0.5975516449885233,
-          0.6415970287836583,
-          0.6980854197349042,
-          0.6239447429009977,
-          0.6435108153078203
+          0.6388676358071921,
+          0.6425255338904364,
+          0.6480117820324006,
+          0.6085955487336915,
+          0.6455906821963394
         ],
         "failures": []
       },
       {
         "penalizer": 0.5,
         "fold_scores": [
-          0.6044376434583014,
-          0.6304549675023212,
-          0.6892488954344624,
-          0.6262471220260937,
-          0.6526622296173045
+          0.6312165263963274,
+          0.6295264623955432,
+          0.6458026509572902,
+          0.5993860322333078,
+          0.670549084858569
         ],
         "failures": []
       },
       {
         "penalizer": 1.0,
         "fold_scores": [
-          0.6082631981637338,
-          0.6295264623955432,
-          0.6892488954344624,
-          0.6316193399846508,
-          0.6493344425956739
+          0.6243305279265493,
+          0.6258124419684308,
+          0.6553755522827688,
+          0.5986185725249424,
+          0.6755407653910149
         ],
         "failures": []
       },
       {
         "penalizer": 5.0,
         "fold_scores": [
-          0.6090283091048202,
-          0.6239554317548747,
-          0.6848306332842415,
-          0.6316193399846508,
-          0.6435108153078203
+          0.6228003060443764,
+          0.6248839368616528,
+          0.6575846833578792,
+          0.5986185725249424,
+          0.670549084858569
         ],
         "failures": []
       }
@@ -267,90 +306,194 @@
     "functional_form_checks": [
       {
         "variable": "age",
-        "method": "Cox linear vs 3-knot cubic spline",
-        "lr": 9.983695780274047,
-        "df": 3,
-        "p": 0.01870523693984714
+        "method": "Multiple-imputation Cox linear vs 3-knot restricted cubic spline",
+        "alpha": 0.1,
+        "n_imputations": 5,
+        "p_values": [
+          0.05050278063828561,
+          0.012678314529581226,
+          0.0008649603930759915,
+          0.013008257134826609,
+          0.03882309102343655
+        ],
+        "n_rcs_preferred": 5,
+        "vote_threshold": 3,
+        "decision_rule": "Use a three-knot restricted cubic spline in every imputation; retain the LRT as a diagnostic.",
+        "decision": "rcs",
+        "deployed_form": "restricted_cubic_spline",
+        "median_p": 0.013008257134826609,
+        "min_p": 0.0008649603930759915,
+        "max_p": 0.05050278063828561
       },
       {
+        "variable": "age",
+        "method": "Cox linear vs 3-knot restricted cubic spline",
+        "lr": 3.824686968538572,
+        "df": 1,
+        "p": 0.05050278063828561,
+        "diagnostic_decision": "rcs_preferred",
+        "decision": "rcs",
+        "deployed_form": "restricted_cubic_spline",
+        "imputation": 1,
+        "seed": 42
+      },
+      {
+        "variable": "age",
+        "method": "Cox linear vs 3-knot restricted cubic spline",
+        "lr": 6.21345225972982,
+        "df": 1,
+        "p": 0.012678314529581226,
+        "diagnostic_decision": "rcs_preferred",
+        "decision": "rcs",
+        "deployed_form": "restricted_cubic_spline",
+        "imputation": 2,
+        "seed": 43
+      },
+      {
+        "variable": "age",
+        "method": "Cox linear vs 3-knot restricted cubic spline",
+        "lr": 11.096387617767732,
+        "df": 1,
+        "p": 0.0008649603930759915,
+        "diagnostic_decision": "rcs_preferred",
+        "decision": "rcs",
+        "deployed_form": "restricted_cubic_spline",
+        "imputation": 3,
+        "seed": 44
+      },
+      {
+        "variable": "age",
+        "method": "Cox linear vs 3-knot restricted cubic spline",
+        "lr": 6.167986606593104,
+        "df": 1,
+        "p": 0.013008257134826609,
+        "diagnostic_decision": "rcs_preferred",
+        "decision": "rcs",
+        "deployed_form": "restricted_cubic_spline",
+        "imputation": 4,
+        "seed": 45
+      },
+      {
+        "variable": "age",
+        "method": "Cox linear vs 3-knot restricted cubic spline",
+        "lr": 4.268591823227098,
+        "df": 1,
+        "p": 0.03882309102343655,
+        "diagnostic_decision": "rcs_preferred",
+        "decision": "rcs",
+        "deployed_form": "restricted_cubic_spline",
+        "imputation": 5,
+        "seed": 46
+      }
+    ],
+    "categorical_encoding_checks": [
+      {
         "variable": "stage",
-        "method": "Cox integer vs dummy coding",
-        "lr": 7.859684755571152,
-        "df": 2,
-        "p": 0.01964676907626654
+        "method": "Treatment-coded one-hot encoding",
+        "reference_level": 1,
+        "levels": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "linearity_test": "not applicable to dummy-coded categorical variables"
       },
       {
         "variable": "t_stage",
-        "method": "Cox integer vs dummy coding",
-        "lr": 2.2155569057179036,
-        "df": 2,
-        "p": 0.33029190567702477
+        "method": "Treatment-coded one-hot encoding",
+        "reference_level": 1,
+        "levels": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "linearity_test": "not applicable to dummy-coded categorical variables"
       },
       {
         "variable": "n_stage",
-        "method": "Cox integer vs dummy coding",
-        "lr": 8.914037321098476,
-        "df": 2,
-        "p": 0.011596886053753079
+        "method": "Treatment-coded one-hot encoding",
+        "reference_level": 0,
+        "levels": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "linearity_test": "not applicable to dummy-coded categorical variables"
+      },
+      {
+        "variable": "m_stage",
+        "method": "Treatment-coded one-hot encoding",
+        "reference_level": 0,
+        "levels": [
+          0,
+          1
+        ],
+        "linearity_test": "not applicable to dummy-coded categorical variables"
       }
     ],
     "limitations": [
       "Functional-form screening is exploratory; small categories can make likelihood-ratio tests unstable.",
       "Overall AJCC stage overlaps biologically with T, N and M; regularization does not remove this redundancy.",
-      "Missing M stage is frequent; mode imputation can underrepresent uncertainty.",
+      "MICE is the primary missing-predictor strategy; complete-case and MNAR sensitivity analyses remain important because M stage is frequently missing.",
       "Internal random split evaluation does not establish external clinical validity.",
       "Median observed follow-up is a descriptive observed-time median, not reverse Kaplan-Meier follow-up."
     ],
     "proportional_hazards": {
-      "age_spline_0": 0.4527452297749721,
-      "age_spline_1": 0.6048121759246063,
-      "age_spline_2": 0.9382953890884347,
-      "age_spline_3": 0.7815864697153289,
-      "m_stage": 0.9011440432419383,
-      "n_stage_1": 0.21053828203918296,
-      "n_stage_2": 0.38055668078433047,
-      "n_stage_3": 0.9453575525668828,
-      "stage_2": 0.11392579297057191,
-      "stage_3": 0.1269727000517383,
-      "stage_4": 0.9004748550288749,
-      "t_stage": 0.5736367862501635
+      "age_rcs_linear": 0.31929039993758784,
+      "age_rcs_nonlinear_1": 0.2679146750137282,
+      "m_stage_1": 0.8165931577052838,
+      "n_stage_1": 0.12410569121442164,
+      "n_stage_2": 0.38656104272761516,
+      "n_stage_3": 0.9401165266995909,
+      "stage_2": 0.04045713266152491,
+      "stage_3": 0.1922207870456667,
+      "stage_4": 0.8026001633044411,
+      "t_stage_2": 0.5038590110158108,
+      "t_stage_3": 0.11898898027234711,
+      "t_stage_4": 0.8790736760221557
     },
     "correlations_spearman": {
       "age": {
         "age": 1.0,
-        "stage": -0.05373780922219741,
-        "t_stage": 0.0011904500922327885,
-        "n_stage": -0.0403181316142544,
-        "m_stage": -0.06554478766260884
+        "stage": -0.05333780792076783,
+        "t_stage": 0.0008141810689468193,
+        "n_stage": -0.040135225202638444,
+        "m_stage": -0.06554546150325768
       },
       "stage": {
-        "age": -0.05373780922219741,
+        "age": -0.05333780792076783,
         "stage": 1.0,
         "t_stage": 0.42051696372393393,
         "n_stage": 0.7525733107674731,
         "m_stage": 0.3847823138955137
       },
       "t_stage": {
-        "age": 0.0011904500922327885,
+        "age": 0.0008141810689468193,
         "stage": 0.42051696372393393,
         "t_stage": 1.0,
         "n_stage": 0.20453986272658278,
         "m_stage": 0.06371667227117743
       },
       "n_stage": {
-        "age": -0.0403181316142544,
+        "age": -0.040135225202638444,
         "stage": 0.7525733107674731,
         "t_stage": 0.20453986272658278,
         "n_stage": 1.0,
         "m_stage": -0.0066919885782319236
       },
       "m_stage": {
-        "age": -0.06554478766260884,
+        "age": -0.06554546150325768,
         "stage": 0.3847823138955137,
         "t_stage": 0.06371667227117743,
         "n_stage": -0.0066919885782319236,
         "m_stage": 1.0
       }
+    },
+    "feature_form_figures": {
+      "age": "feature_form_age.png"
     }
   }
 }
