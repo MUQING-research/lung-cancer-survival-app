@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ACCOUNT = "medictio"
@@ -67,16 +69,21 @@ def main() -> int:
     if args.check:
         print("Deployment preflight passed.")
         return 0
-    cmd = [
-        sys.executable, "-m", "rsconnect.main", "deploy", "shiny", str(ROOT),
-        *RUNTIME_FILES,
-        "--name", ACCOUNT, "--title", TITLE, "--app-id", APP_ID,
-        "--python", sys.executable,
-        "--exclude", "**",
-    ]
-    # shinyapps.io does not support rsconnect --environment management.
-    print(f"Deploying https://{ACCOUNT}.shinyapps.io/{TITLE}/", flush=True)
-    return subprocess.run(cmd, cwd=ROOT, check=False).returncode
+    # Stage only runtime files so local rsconnect metadata and project caches
+    # cannot be interpreted as deployable application content.
+    with tempfile.TemporaryDirectory(prefix="lung_cancer_shiny_deploy_") as temp_dir:
+        staging_root = Path(temp_dir)
+        for filename in RUNTIME_FILES:
+            shutil.copy2(ROOT / filename, staging_root / filename)
+        cmd = [
+            sys.executable, "-m", "rsconnect.main", "deploy", "shiny",
+            str(staging_root),
+            "--name", ACCOUNT, "--title", TITLE, "--app-id", APP_ID,
+            "--python", sys.executable,
+        ]
+        # shinyapps.io does not support rsconnect --environment management.
+        print(f"Deploying https://{ACCOUNT}.shinyapps.io/{TITLE}/", flush=True)
+        return subprocess.run(cmd, cwd=staging_root, check=False).returncode
 
 
 if __name__ == "__main__":
