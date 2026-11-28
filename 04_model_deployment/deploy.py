@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parent
 RUNTIME_FILES = (
     ".python-version",
     "app.py",
+    "auth_gate.py",
+    "auth.css",
     "visualizations.py",
     "clean_clinical_data.py",
     "survival_preprocessing.py",

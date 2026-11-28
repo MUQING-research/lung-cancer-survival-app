@@ -40,6 +40,7 @@ import pandas as pd
 import requests
 from lifelines import KaplanMeierFitter
 from shiny import App, reactive, render, ui
+from auth_gate import install_auth
 from shiny.types import SafeException
 from sklearn.model_selection import train_test_split
 from sksurv.metrics import brier_score as _brier_score
@@ -1008,7 +1009,7 @@ print("  Static figures rendered.", flush=True)
 # ── 4. CSS (Cell Press style) ────────────────────────────────────────────────
 
 # Keep the dashboard theme in one deployable stylesheet.
-_CSS = (Path(__file__).parent / "compact_theme.css").read_text(encoding="utf-8")
+_CSS = (Path(__file__).parent / "compact_theme.css").read_text(encoding="utf-8") + "\n" + (Path(__file__).parent / "auth.css").read_text(encoding="utf-8")
 
 _TEXT_SCALE_JS = """
 (() => {
@@ -1709,6 +1710,15 @@ def server(input, output, session):
             ),
             class_="methods",
         )
+
+
+_dashboard_ui = app_ui
+_dashboard_server = server
+app_ui = ui.page_fluid(ui.tags.style(_CSS), ui.output_ui("auth_page"))
+
+
+def server(input, output, session):
+    install_auth(input, output, session, _dashboard_ui, _dashboard_server)
 
 
 app = App(app_ui, server)

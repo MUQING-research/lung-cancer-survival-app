@@ -4,6 +4,9 @@ A [Shiny for Python](https://shiny.posit.co/py/) application comparing Cox propo
 
 [Open the live application](https://medictio.shinyapps.io/nsclc-survival/)
 
+Access requires an account. Register with an email address, confirm it through the verification email, then sign in. Passwords are verified by Supabase Auth and are not stored by the app.
+
+
 > [!WARNING]
 > For research and education only. The models have not been externally validated and must not be used for individual prognosis or treatment decisions.
 
