@@ -57,6 +57,6 @@ The rebuild requires the GDC clinical data source and training dependencies. For
 - `03_model_training_and_evaluation/`: model training and tests.
 - `04_model_deployment/`: Shiny runtime, dependencies, and model bundle.
 
-Optional visitor analytics can use `IPINFO_TOKEN`, `SUPABASE_URL`, and `SUPABASE_KEY`; without Supabase credentials, visit data remain process-local. Prediction inputs are not stored. Hosted visitors should be informed when location lookup is enabled.
+Prediction inputs are not stored. The application does not collect visitor location or visit history.
 
 Data source: The Cancer Genome Atlas Research Network, [TCGA-LUAD](https://portal.gdc.cancer.gov/projects/TCGA-LUAD), via the NCI Genomic Data Commons.

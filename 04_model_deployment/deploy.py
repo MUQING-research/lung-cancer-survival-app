@@ -29,7 +29,6 @@ RUNTIME_FILES = (
     "tcga_luad_survival_model_bundle.pkl",
     "preprocessing_decisions.json",
     "compact_theme.css",
-    "world.geojson",
     "requirements.txt",
 )
 LOCAL_UPLOAD_PYTHON_VERSIONS = {(3, 13), (3, 12)}

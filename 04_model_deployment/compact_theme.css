@@ -78,8 +78,6 @@ body { margin: 0; color: var(--ink); background: var(--canvas); font: 16px/1.5 s
 .cohort-distribution > .dashboard-card { width: 100%; }
 .selected-family { display: flex; justify-content: space-between; gap: .75rem; padding: .65rem .8rem; margin-bottom: .75rem; background: #edf5fa; color: var(--accent-dark); font-size: .85rem; }
 .pair-grid .chart-frame img { max-width: 35rem; }
-.visitor-grid { grid-template-columns: minmax(0,1.5fr) minmax(0,1fr); }
-.visitor-grid .chart-frame img { max-width: none; }
 .performance-grid { margin-bottom: 1rem; }
 .score-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .65rem; }
 .score { display: flex; flex-direction: column; gap: .25rem; padding: .7rem; background: #f3f7fa; }
@@ -124,7 +122,7 @@ body { margin: 0; color: var(--ink); background: var(--canvas); font: 16px/1.5 s
   .masthead-inner { align-items: flex-start; flex-wrap: wrap; }
   .main-content .nav-tabs { flex-wrap: nowrap; gap: 1rem; overflow-x: auto; }
   .patient-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .pair-grid, .visitor-grid { grid-template-columns: minmax(0,1fr); }
+  .pair-grid { grid-template-columns: minmax(0,1fr); }
   .stat-grid { gap: 0; }
   .stat-tile { padding: .2rem .5rem; }
   .stat-value { font-size: 1.15rem; }
