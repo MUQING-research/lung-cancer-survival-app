@@ -52,6 +52,7 @@ def install_auth(input, output, session, dashboard_ui, dashboard_server):
                 ui.div(
                     ui.input_action_button("auth_login", "Sign in", class_="btn-primary"),
                     ui.input_action_button("auth_register", "Register", class_="btn-outline-primary"),
+                    ui.input_action_button("auth_resend", "Resend verification email", class_="btn-link btn-sm"),
                     class_="auth-actions",
                 ),
                 ui.output_ui("auth_message"),
@@ -79,6 +80,19 @@ def install_auth(input, output, session, dashboard_ui, dashboard_server):
                 message.set("This project may allow unverified sessions. Turn on email confirmation in Supabase Auth settings before using registration.")
                 return
             message.set("Registration received. Check your email and confirm your address, then return here to sign in.")
+        except (requests.RequestException, ValueError) as exc:
+            message.set(str(exc))
+
+    @reactive.effect
+    @reactive.event(input.auth_resend)
+    def _resend_verification():
+        email = (input.auth_email() or "").strip()
+        if not email:
+            message.set("Enter your email address first.")
+            return
+        try:
+            auth_request("resend", {"type": "signup", "email": email})
+            message.set("If this address has an unconfirmed account, Supabase has sent a new verification email. Check your inbox and spam folder.")
         except (requests.RequestException, ValueError) as exc:
             message.set(str(exc))
 
