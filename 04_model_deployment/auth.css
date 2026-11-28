@@ -1,7 +1,0 @@
-﻿.auth-card { width: min(100% - 2rem, 28rem); margin: 10vh auto; padding: 2rem; border: 1px solid var(--line, #d9dfe5); border-radius: .5rem; background: var(--surface, #fff); box-shadow: 0 8px 30px rgba(20, 35, 50, .08); }
-.auth-card h2 { margin: 0 0 .5rem; font-size: 1.5rem; }
-.auth-card > p { color: var(--muted, #64707d); }
-.auth-card .shiny-input-container { width: 100%; margin: 1rem 0; }
-.auth-actions, .auth-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; }
-.auth-toolbar { padding: .6rem 1rem; border-bottom: 1px solid var(--line, #d9dfe5); color: var(--muted, #64707d); font-size: .9rem; }
-.auth-message { margin: 1rem 0 0; overflow-wrap: anywhere; color: var(--accent-dark, #304c70); }
